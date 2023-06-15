@@ -9,6 +9,8 @@ const pg = @cImport({
     @cInclude("utils/lsyscache.h");
 });
 
+const tuple_to_stringinfo = @import("util.zig").tuple_to_stringinfo;
+
 // Magic PostgreSQL symbols to indicate it's a loadable module
 pub const PG_MAGIC_FUNCTION_NAME = Pg_magic_func;
 pub const PG_MAGIC_FUNCTION_NAME_STRING = "Pg_magic_func";
@@ -88,7 +90,7 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
     opt.*.receive_rewrites = true;
 
     // TODO: what's streaming?
-    ctx.*.streaming = true;
+    ctx.*.streaming = false;
 }
 
 pub fn pgturso_shutdown(arg_ctx: [*c]pg.LogicalDecodingContext) callconv(.C) void {
@@ -104,6 +106,7 @@ pub fn pgturso_begin_txn(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg
     const last_write = false;
     pg.OutputPluginPrepareWrite(ctx, last_write);
     std.debug.print("out: BEGIN\n", .{}); // NOTICE: send to Turso here
+    pg.appendStringInfoString(ctx.*.out, "BEGIN");
     pg.OutputPluginWrite(ctx, last_write);
 }
 
@@ -116,93 +119,8 @@ pub fn pgturso_commit_txn(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]p
     const last_write = true;
     pg.OutputPluginPrepareWrite(ctx, last_write);
     std.debug.print("out: COMMIT\n", .{}); // NOTICE: send to Turso here
+    pg.appendStringInfoString(ctx.*.out, "COMMIT");
     pg.OutputPluginWrite(ctx, last_write);
-}
-
-pub fn print_literal(arg_s: pg.StringInfo, arg_typid: pg.Oid, arg_outputstr: [*c]u8) callconv(.C) void {
-    var s = arg_s;
-    var typid = arg_typid;
-    var outputstr = arg_outputstr;
-    var valptr: [*c]const u8 = undefined;
-    while (true) {
-        switch (typid) {
-            @bitCast(pg.Oid, @as(c_int, 21)), @bitCast(pg.Oid, @as(c_int, 23)), @bitCast(pg.Oid, @as(c_int, 20)), @bitCast(pg.Oid, @as(c_int, 26)), @bitCast(pg.Oid, @as(c_int, 700)), @bitCast(pg.Oid, @as(c_int, 701)), @bitCast(pg.Oid, @as(c_int, 1700)) => {
-                pg.appendStringInfoString(s, outputstr);
-                break;
-            },
-            @bitCast(pg.Oid, @as(c_int, 1560)), @bitCast(pg.Oid, @as(c_int, 1562)) => {
-                pg.appendStringInfo(s, "B'%s'", outputstr);
-                break;
-            },
-            @bitCast(pg.Oid, @as(c_int, 16)) => {
-                if (std.zig.c_builtins.__builtin_strcmp(outputstr, "t") == @as(c_int, 0)) {
-                    pg.appendStringInfoString(s, "true");
-                } else {
-                    pg.appendStringInfoString(s, "false");
-                }
-                break;
-            },
-            else => {
-                pg.appendStringInfoChar(s, @bitCast(u8, @truncate(i8, @as(c_int, '\''))));
-                {
-                    valptr = outputstr;
-                    while (valptr.* != 0) : (valptr += 1) {
-                        var ch: u8 = valptr.*;
-                        if ((@bitCast(c_int, @as(c_uint, ch)) == @as(c_int, '\'')) or ((@bitCast(c_int, @as(c_uint, ch)) == @as(c_int, '\\')) and (@as(c_int, 0) != 0))) {
-                            pg.appendStringInfoChar(s, ch);
-                        }
-                        pg.appendStringInfoChar(s, ch);
-                    }
-                }
-                pg.appendStringInfoChar(s, @bitCast(u8, @truncate(i8, @as(c_int, '\''))));
-                break;
-            },
-        }
-        break;
-    }
-}
-
-fn tuple_to_stringinfo(arg_s: pg.StringInfo, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.HeapTuple, arg_skip_nulls: bool) callconv(.C) void {
-    var s = arg_s;
-    var tupdesc = arg_tupdesc;
-    var tuple = arg_tuple;
-    var skip_nulls = arg_skip_nulls;
-    var natt: c_int = undefined;
-    {
-        natt = 0;
-        while (natt < tupdesc.*.natts) : (natt += 1) {
-            var attr: pg.Form_pg_attribute = undefined;
-            var typid: pg.Oid = undefined;
-            var typoutput: pg.Oid = undefined;
-            var typisvarlena: bool = undefined;
-            var origval: pg.Datum = undefined;
-            var isnull: bool = undefined;
-            attr = &tupdesc.*.attrs()[@intCast(c_uint, natt)];
-            if (attr.*.attisdropped) continue;
-            if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
-            typid = attr.*.atttypid;
-            origval = pg.heap_getattr(tuple, natt + @as(c_int, 1), tupdesc, &isnull);
-            if ((@as(c_int, @boolToInt(isnull)) != 0) and (@as(c_int, @boolToInt(skip_nulls)) != 0)) continue;
-            pg.appendStringInfoChar(s, @bitCast(u8, @truncate(i8, @as(c_int, ' '))));
-            pg.appendStringInfoString(s, pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data))));
-            pg.appendStringInfoChar(s, @bitCast(u8, @truncate(i8, @as(c_int, '['))));
-            pg.appendStringInfoString(s, pg.format_type_be(typid));
-            pg.appendStringInfoChar(s, @bitCast(u8, @truncate(i8, @as(c_int, ']'))));
-            pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
-            pg.appendStringInfoChar(s, @bitCast(u8, @truncate(i8, @as(c_int, ':'))));
-            if (isnull) {
-                pg.appendStringInfoString(s, "null");
-            } else if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, origval).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, origval).*.va_tag)) == pg.VARTAG_ONDISK))) {
-                pg.appendStringInfoString(s, "unchanged-toast-datum");
-            } else if (!typisvarlena) {
-                print_literal(s, typid, pg.OidOutputFunctionCall(typoutput, origval));
-            } else {
-                var val: pg.Datum = undefined;
-                val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(origval))))));
-                print_literal(s, typid, pg.OidOutputFunctionCall(typoutput, val));
-            }
-        }
-    }
 }
 
 pub fn pgturso_change(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_relation: pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
@@ -211,73 +129,74 @@ pub fn pgturso_change(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.Re
     var data: [*c]PgTursoData = @ptrCast([*c]PgTursoData, @alignCast(@import("std").meta.alignment([*c]PgTursoData), ctx.*.output_plugin_private));
     var relation = arg_relation;
     var change = arg_change;
-    var class_form: pg.Form_pg_class = undefined;
-    var tupdesc: pg.TupleDesc = undefined;
-    var old: pg.MemoryContext = undefined;
-    var last_write = false;
+    var class_form: pg.Form_pg_class = relation.*.rd_rel;
+    var tupdesc: pg.TupleDesc = relation.*.rd_att;
+    var old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
+    var last_write = true;
+
+    // NOTICE: translated.zig optionally started a BEGIN here. Verify if it's ever needed
 
     pg.OutputPluginPrepareWrite(ctx, last_write);
-    std.debug.print("out: BEGIN\n", .{}); // NOTICE: send to Turso here
-    pg.OutputPluginWrite(ctx, last_write);
 
-    class_form = relation.*.rd_rel;
-    tupdesc = relation.*.rd_att;
-    old = pg.MemoryContextSwitchTo(data.*.context);
-    last_write = true;
-    pg.OutputPluginPrepareWrite(ctx, last_write);
+    // NOTICE: it's easy to get qualified names with pg_quote_qualified_identifier,
+    // but let's simplify it without namespaces for now.
+    const table = if (class_form.*.relrewrite != 0) pg.get_rel_name(class_form.*.relrewrite) else @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &class_form.*.relname.data));
 
-    std.debug.print("out: table {s}\n", .{pg.quote_qualified_identifier(pg.get_namespace_name(pg.get_rel_namespace(relation.*.rd_id)), if (class_form.*.relrewrite != 0) pg.get_rel_name(class_form.*.relrewrite) else @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &class_form.*.relname.data)))}); // NOTICE: send to Turso here
+    pg.appendStringInfoString(ctx.*.out, "table ");
+    pg.appendStringInfoString(ctx.*.out, table);
+    pg.appendStringInfoChar(ctx.*.out, @bitCast(u8, @truncate(i8, @as(c_int, ':'))));
 
-    while (true) {
-        switch (change.*.action) {
-            @bitCast(c_uint, @as(c_int, 0)) => {
-                // NOTICE: translated.zig contains the original code for reference
-                std.debug.print("out: INSERT ", .{}); // NOTICE: send to Turso here
-                if (change.*.data.tp.newtuple == @ptrCast([*c]pg.ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]pg.ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
-                    std.debug.print(" (no-tuple-data)\n", .{}); // NOTICE: send to Turso here
+    switch (change.*.action) {
+        0 => {
+            // NOTICE: translated.zig contains the original code for reference
+            // TODO: list affected columns before VALUES
+            std.debug.print("out: INSERT INTO {s} VALUES(", .{table}); // NOTICE: send to Turso here
+            if (change.*.data.tp.newtuple == @ptrCast([*c]pg.ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]pg.ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
+                std.debug.print(" (no-tuple-data)", .{}); // NOTICE: send to Turso here
+            } else {
+                var info = pg.StringInfoData{ .data = null, .len = 0, .maxlen = 0, .cursor = 0 };
+                pg.initStringInfo(&info);
+                tuple_to_stringinfo(&info, tupdesc, &change.*.data.tp.newtuple.*.tuple, false);
+                tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.newtuple.*.tuple, false);
+                if (info.len == 0) {
+                    std.debug.print("NO INFO!!!", .{});
                 } else {
-                    var info = pg.StringInfoData{ .data = null, .len = 0, .maxlen = 0, .cursor = 0 };
-                    tuple_to_stringinfo(&info, tupdesc, &change.*.data.tp.newtuple.*.tuple, false);
-                    if (info.len == 0) {
-                        std.debug.print("NO INFO!!!\n", .{});
-                    } else {
-                        std.debug.print(" {s}\n", .{info.data[0..@intCast(usize, info.len)]}); // NOTICE: send to Turso here
-                    }
+                    std.debug.print(" {s}", .{info.data[0..@intCast(usize, info.len)]}); // NOTICE: send to Turso here
                 }
-                break;
-            },
-            @bitCast(c_uint, @as(c_int, 1)) => {
-                // NOTICE: translated.zig contains the original code for reference
-                std.debug.print("out: UPDATE\n", .{}); // NOTICE: send to Turso here
-                //if (change.*.data.tp.oldtuple != @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
-                //    appendStringInfoString(ctx.*.out, " old-key:");
-                //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.oldtuple.*.tuple, @as(c_int, 1) != 0);
-                //    appendStringInfoString(ctx.*.out, " new-tuple:");
-                //}
-                //if (change.*.data.tp.newtuple == @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
-                //    appendStringInfoString(ctx.*.out, " (no-tuple-data)");
-                //} else {
-                //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.newtuple.*.tuple, @as(c_int, 0) != 0);
-                //}
-                //break;
-            },
-            @bitCast(c_uint, @as(c_int, 2)) => {
-                // NOTICE: translated.zig contains the original code for reference
-                std.debug.print("out: DELETE\n", .{}); // NOTICE: send to Turso here
-                //appendStringInfoString(ctx.*.out, " DELETE:");
-                //if (change.*.data.tp.oldtuple == @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
-                //    appendStringInfoString(ctx.*.out, " (no-tuple-data)");
-                //} else {
-                //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.oldtuple.*.tuple, @as(c_int, 1) != 0);
-                //}
-                //break;
-            },
-            else => {
-                std.debug.print("out: ???\n", .{}); // NOTICE: send to Turso here
-            },
-        }
-        break;
+            }
+            std.debug.print(")\n", .{});
+        },
+        1 => {
+            // NOTICE: translated.zig contains the original code for reference
+            std.debug.print("out: UPDATE {s} \n", .{table}); // NOTICE: send to Turso here
+            //if (change.*.data.tp.oldtuple != @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
+            //    appendStringInfoString(ctx.*.out, " old-key:");
+            //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.oldtuple.*.tuple, @as(c_int, 1) != 0);
+            //    appendStringInfoString(ctx.*.out, " new-tuple:");
+            //}
+            //if (change.*.data.tp.newtuple == @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
+            //    appendStringInfoString(ctx.*.out, " (no-tuple-data)");
+            //} else {
+            //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.newtuple.*.tuple, @as(c_int, 0) != 0);
+            //}
+            //break;
+        },
+        2 => {
+            // NOTICE: translated.zig contains the original code for reference
+            std.debug.print("out: DELETE FROM {s}\n", .{table}); // NOTICE: send to Turso here
+            //appendStringInfoString(ctx.*.out, " DELETE:");
+            //if (change.*.data.tp.oldtuple == @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
+            //    appendStringInfoString(ctx.*.out, " (no-tuple-data)");
+            //} else {
+            //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.oldtuple.*.tuple, @as(c_int, 1) != 0);
+            //}
+            //break;
+        },
+        else => {
+            std.debug.print("out: ???\n", .{}); // NOTICE: send to Turso here
+        },
     }
+
     _ = pg.MemoryContextSwitchTo(old);
     pg.MemoryContextReset(data.*.context);
     pg.OutputPluginWrite(ctx, last_write);

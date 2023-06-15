@@ -8,7 +8,7 @@ pub fn build(b: *std.build.Builder) void {
     const lib = b.addSharedLibrary("pgturso", "src/main.zig", b.version(0, 0, 1));
     lib.linkLibC();
     lib.setBuildMode(mode);
-    lib.addIncludePath("postgres/include");
+    lib.addIncludePath("postgres/src/include");
     lib.install();
 
     const main_tests = b.addTest("src/main.zig");
