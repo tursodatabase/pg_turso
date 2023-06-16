@@ -2,6 +2,13 @@
 
 Postgres [output plugin](https://www.postgresql.org/docs/current/logicaldecoding-output-plugin.html) for replicating data to Turso.
 
+## Status
+
+Super early development, with most of the stuff barely working.
+* Only `INSERT` statements are generated at the moment. `DELETE`, `UPDATE`, and `TRUNCATE` should follow.
+* Schema is not propagated anywhere - `CREATE TABLE` is not ever sent from the plugin, so we need some way to figure out schema changes.
+* Last I checked, Zig's HTTPS failed with a cryptic cert error when connecting to a Turso instance over https. Local `sqld` connection worked.
+
 ## How to build
 
 This guide assumes that you have a local installation of Postgres. Get one from https://www.postgresql.org/download/
@@ -68,10 +75,3 @@ SELECT * FROM pg_logical_slot_get_changes('pgturso_slot', NULL, NULL, 'url', 'ht
 Note that this is a regular `SELECT` statement, so you're free to fetch the secret token value from another table, if it should remain secret.
 
 The call triggers parsing WAL and processing all the logical changes. These changes are sent to Turso.
-
-## Status
-
-Super early development, with most of the stuff barely working.
-* Only `INSERT` statements are generated at the moment. `DELETE`, `UPDATE`, and `TRUNCATE` should follow.
-* Schema is not propagated anywhere - `CREATE TABLE` is not ever sent from the plugin, so we need some way to figure out schema changes.
-* Last I checked, Zig's HTTPS failed with a cryptic cert error when connecting to a Turso instance over https. Local `sqld` connection worked.
