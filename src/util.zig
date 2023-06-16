@@ -100,14 +100,12 @@ pub fn replicate(url: []u8, auth: []u8, arg_sql: pg.StringInfo) !void {
     const sql = arg_sql.*.data[0..@intCast(usize, arg_sql.*.len)];
     defer client.deinit();
 
-    std.debug.print("Trying to replicate |{s}| |{s}| |{s}|\n", .{url, auth, sql});
-    var headers = std.http.Headers { .allocator = allocator };
+    std.debug.print("Trying to replicate |{s}| |{s}| |{s}|\n", .{ url, auth, sql });
+    var headers = std.http.Headers{ .allocator = allocator };
     defer headers.deinit();
     try headers.append("Authorization", auth);
     try headers.append("Transfer-Encoding", "");
     try headers.append("Content-Type", "application/json");
-
-
 
     var data_buf: [4096]u8 = undefined;
     // TODO: zig has built-in JSON support, we should use it
@@ -126,6 +124,6 @@ pub fn replicate(url: []u8, auth: []u8, arg_sql: pg.StringInfo) !void {
     try req.finish();
     try req.wait();
 
-    std.debug.print("Response status: {}\n", .{ req.response.status });
+    std.debug.print("Response status: {}\n", .{req.response.status});
     try std.testing.expect(req.response.status == .ok); // FIXME: remove
 }

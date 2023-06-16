@@ -115,7 +115,7 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
         if (std.mem.eql(u8, elem.*.defname[0..3], "url")) {
             const url_string = std.mem.span(@ptrCast([*c]pg.String, @alignCast(@import("std").meta.alignment([*c]pg.String), elem.*.arg)).*.sval);
             data.*.url = std.fmt.allocPrint(allocator, "{s}", .{url_string}) catch unreachable; // FIXME: handle errors
-        } else if (std.mem.eql(u8, elem.*.defname[0..4], "auth")) {
+        } else if (std.mem.eql(u8, elem.*.defname[0..4], "auth") or std.mem.eql(u8, elem.*.defname[0..5], "token")) {
             const auth_string = std.mem.span(@ptrCast([*c]pg.String, @alignCast(@import("std").meta.alignment([*c]pg.String), elem.*.arg)).*.sval);
             data.*.auth = std.fmt.allocPrint(allocator, "Bearer {s}", .{auth_string}) catch unreachable; // FIXME: handle errors
         }
