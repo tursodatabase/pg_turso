@@ -7,6 +7,7 @@ Postgres [output plugin](https://www.postgresql.org/docs/current/logicaldecoding
 Super early development, with most of the stuff barely working.
 * Only `INSERT` statements are generated at the moment. `DELETE`, `UPDATE`, and `TRUNCATE` should follow.
 * Schema is not propagated anywhere - `CREATE TABLE` is not ever sent from the plugin, so we need some way to figure out schema changes.
+* Batches. No point in sending cdc updates one at a time
 
 ## How to build
 
