@@ -14,10 +14,10 @@ Super early development, with most of the stuff barely working.
 This guide assumes that you have a local installation of Postgres. Get one from https://www.postgresql.org/download/
 
 1. Download zig 0.11 or higher: https://ziglang.org/download/
-2. Initialize and build the Postgres submodule, once:
+2. Initialize and generate headers in the Postgres submodule, once:
    ```sh
    git submodule update --init --recursive
-   ( cd postgres && ./configure && make -j12 )
+   ( cd postgres && ./configure && cd src/include && make)
    ```
 3. Format (optional)
    ```sh
