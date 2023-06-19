@@ -9,7 +9,7 @@ const pg = @cImport({
     @cInclude("utils/lsyscache.h");
 });
 
-const insert_to_stringinfo = @import("util.zig").insert_to_stringinfo;
+const print_insert = @import("util.zig").print_insert;
 const replicate = @import("util.zig").replicate;
 
 // Magic PostgreSQL symbols to indicate it's a loadable module
@@ -77,6 +77,10 @@ const PgTursoData = struct {
     auth: []u8,
 };
 
+const PgTursoTxnData = struct {
+    stmt_list: std.json.Array,
+};
+
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
@@ -133,57 +137,61 @@ pub fn pgturso_shutdown(arg_ctx: [*c]pg.LogicalDecodingContext) callconv(.C) voi
     pg.MemoryContextDelete(data.*.context);
 }
 
-pub fn pgturso_begin_txn(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN) callconv(.C) void {
-    _ = arg_txn;
-    _ = arg_ctx;
-    // NOTICE: txndata can be an allocated struct that stores opaque transaction-specific data
-    //var data: *PgTursoData = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), ctx.*.output_plugin_private));
-    //txn.*.output_plugin_private = @ptrCast(?*anyopaque, txndata);
-    std.debug.print("BEGIN\n", .{}); // NOTICE: send to Turso here
+pub fn pgturso_begin_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN) callconv(.C) void {
+    // NOTICE: PgTursoTxnData is lazily allocated on first statement, to avoid allocations on empty blocks
+    _ = ctx;
+    _ = txn;
 }
 
-pub fn pgturso_change(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_relation: pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
-    var ctx = arg_ctx;
-    _ = arg_txn;
+// We could create the full JSON object here, but it's more efficient to operate on a list of statements,
+// and only wrap them into an object right before sending them to Turso.
+fn init_stmt_list() std.json.Array {
+    return std.json.Array.initCapacity(allocator, 3) catch unreachable; // FIXME: handle errors
+}
+
+pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_relation: pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
     var data: *PgTursoData = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), ctx.*.output_plugin_private));
+    var txndata: ?*PgTursoTxnData = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), txn.*.output_plugin_private));
     var relation = arg_relation;
     var change = arg_change;
     var class_form: pg.Form_pg_class = relation.*.rd_rel;
     var tupdesc: pg.TupleDesc = relation.*.rd_att;
     var old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
 
-    // NOTICE: translated.zig optionally started a BEGIN here. Verify if it's ever needed
+    // Initialize transaction data if it's not there yet
+    if (txndata == null) {
+        txndata = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), pg.MemoryContextAllocZero(ctx.*.context, @sizeOf(PgTursoTxnData))));
+        txn.*.output_plugin_private = @ptrCast(?*anyopaque, txndata);
+        txndata.?.*.stmt_list = init_stmt_list();
+        txndata.?.*.stmt_list.append(std.json.Value{ .string = "BEGIN" }) catch unreachable;
+    }
 
     // NOTICE: it's easy to get qualified names with pg_quote_qualified_identifier,
     // but let's simplify it without namespaces for now.
     const table = if (class_form.*.relrewrite != 0) pg.get_rel_name(class_form.*.relrewrite) else @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &class_form.*.relname.data));
 
-    var info = pg.StringInfoData{ .data = null, .len = 0, .maxlen = 0, .cursor = 0 };
-    pg.initStringInfo(&info);
+    var stmt_buf: [65536]u8 = undefined; // TODO: is this static limit good enough?
 
     switch (change.*.action) {
         0 => {
-            // NOTICE: translated.zig contains the original code for reference
-            // TODO: list affected columns before VALUES
-            pg.appendStringInfoString(&info, "INSERT INTO ");
-            pg.appendStringInfoString(&info, table);
+            const prefix = std.fmt.bufPrint(&stmt_buf, "INSERT INTO {s} ", .{table}) catch unreachable;
+            var offset = prefix.len;
             if (change.*.data.tp.newtuple == null) {
-                std.debug.print(" (no-tuple-data)", .{}); // NOTICE: send to Turso here
+                std.debug.print(" (no-tuple-data)", .{});
             } else {
-                insert_to_stringinfo(&info, tupdesc, &change.*.data.tp.newtuple.*.tuple);
-            }
-            if (info.len == 0) {
-                std.debug.print("NO INFO!!!", .{});
-            } else {
-                std.debug.print("{s}", .{info.data[0..@intCast(usize, info.len)]}); // NOTICE: send to Turso here
-                replicate(data.*.url, data.*.auth, &info) catch |err| {
-                    std.debug.print("Failed to replicate: {}\n", .{err});
-                };
+                offset += print_insert(stmt_buf[offset..], tupdesc, &change.*.data.tp.newtuple.*.tuple);
+                if (offset == 0) {
+                    std.debug.print("NO INSERT INFO!!!", .{});
+                } else {
+                    std.debug.print("Statement: {s}\n", .{stmt_buf[0..offset]});
+                    const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable; // FIXME: handle errors
+                    txndata.?.*.stmt_list.append(std.json.Value{ .string = stmt }) catch unreachable;
+                }
             }
         },
         1 => {
             // NOTICE: translated.zig contains the original code for reference
-            std.debug.print("out: UPDATE {s} \n", .{table}); // NOTICE: send to Turso here
+            std.debug.print("out: UPDATE {s} \n", .{table});
             //if (change.*.data.tp.oldtuple != @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
             //    appendStringInfoString(ctx.*.out, " old-key:");
             //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.oldtuple.*.tuple, @as(c_int, 1) != 0);
@@ -198,7 +206,7 @@ pub fn pgturso_change(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.Re
         },
         2 => {
             // NOTICE: translated.zig contains the original code for reference
-            std.debug.print("out: DELETE FROM {s}\n", .{table}); // NOTICE: send to Turso here
+            std.debug.print("out: DELETE FROM {s}\n", .{table});
             //appendStringInfoString(ctx.*.out, " DELETE:");
             //if (change.*.data.tp.oldtuple == @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
             //    appendStringInfoString(ctx.*.out, " (no-tuple-data)");
@@ -208,7 +216,7 @@ pub fn pgturso_change(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.Re
             //break;
         },
         else => {
-            std.debug.print("???\n", .{}); // NOTICE: send to Turso here
+            std.debug.print("???\n", .{});
         },
     }
 
@@ -216,38 +224,62 @@ pub fn pgturso_change(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.Re
     pg.MemoryContextReset(data.*.context);
 }
 
-pub fn pgturso_commit_txn(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_commit_lsn: pg.XLogRecPtr) callconv(.C) void {
-    _ = arg_ctx;
-    var txn = arg_txn;
+pub fn pgturso_commit_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_commit_lsn: pg.XLogRecPtr) callconv(.C) void {
     _ = arg_commit_lsn;
+    var data: *PgTursoData = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), ctx.*.output_plugin_private));
 
-    txn.*.output_plugin_private = @intToPtr(?*anyopaque, @as(c_int, 0));
-    std.debug.print("COMMIT\n", .{}); // NOTICE: send to Turso here
+    var txndata: ?*PgTursoTxnData = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), txn.*.output_plugin_private));
+    if (txndata == null) {
+        std.debug.print("pgturso_commit_txn: no txndata\n", .{});
+        return;
+    }
+
+    txndata.?.*.stmt_list.append(std.json.Value{ .string = "COMMIT" }) catch unreachable;
+
+    var object_map = std.json.ObjectMap.init(allocator);
+    object_map.put("statements", std.json.Value{ .array = txndata.?.*.stmt_list }) catch unreachable;
+    const json_payload = std.json.Value{ .object = object_map };
+
+    replicate(data.*.url, data.*.auth, json_payload) catch |err| {
+        std.debug.print("Failed to replicate: {}\n", .{err});
+    };
+
+    _ = txndata.?.*.stmt_list.pop(); // popping COMMIT
+    for (txndata.?.*.stmt_list.items[1..]) |stmt| { // skipping BEGIN
+        allocator.free(stmt.string);
+    }
+
+    pg.pfree(@ptrCast(?*anyopaque, txndata));
+    txn.*.output_plugin_private = null;
 }
 
-pub fn pgturso_truncate(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_nrelations: c_int, arg_relations: [*c]pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
-    var ctx = arg_ctx;
+pub fn pgturso_truncate(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_nrelations: c_int, arg_relations: [*c]pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
     var nrelations = arg_nrelations;
     var relations = arg_relations;
-    _ = arg_txn;
     _ = arg_change;
     var data = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), ctx.*.output_plugin_private));
     var old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
 
-    {
-        var i: i32 = 0;
-        while (i < nrelations) : (i += 1) {
-            // TODO: rephrase this translate-c abomination and deduplicate getting qualified id
-            const table = pg.quote_qualified_identifier(pg.get_namespace_name((blk: {
-                const tmp = i;
-                if (tmp >= 0) break :blk relations + @intCast(usize, tmp) else break :blk relations - ~@bitCast(usize, @intCast(isize, tmp) +% -1);
-            }).*.*.rd_rel.*.relnamespace), @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &(blk: {
-                const tmp = i;
-                if (tmp >= 0) break :blk relations + @intCast(usize, tmp) else break :blk relations - ~@bitCast(usize, @intCast(isize, tmp) +% -1);
-            }).*.*.rd_rel.*.relname.data)));
-            std.debug.print("out: TRUNCATE {s};\n", .{table}); // NOTICE: send to Turso here
-        }
+    var txndata: ?*PgTursoTxnData = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), txn.*.output_plugin_private));
+    // Initialize transaction data if it's not there yet
+    if (txndata == null) {
+        txndata = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), pg.MemoryContextAllocZero(ctx.*.context, @sizeOf(PgTursoTxnData))));
+        txn.*.output_plugin_private = @ptrCast(?*anyopaque, txndata);
+        txndata.?.*.stmt_list = init_stmt_list();
+        txndata.?.*.stmt_list.append(std.json.Value{ .string = "BEGIN" }) catch unreachable;
     }
+
+    var i: i32 = 0;
+    while (i < nrelations) : (i += 1) {
+        // TODO: rephrase this translate-c abomination and deduplicate getting qualified id
+        const table = @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &(blk: {
+            const tmp = i;
+            if (tmp >= 0) break :blk relations + @intCast(usize, tmp) else break :blk relations - ~@bitCast(usize, @intCast(isize, tmp) +% -1);
+        }).*.*.rd_rel.*.relname.data));
+        const stmt = std.fmt.allocPrint(allocator, "DELETE FROM {s}", .{table}) catch unreachable;
+        txndata.?.*.stmt_list.append(std.json.Value{ .string = stmt }) catch unreachable;
+    }
+
     _ = pg.MemoryContextSwitchTo(old);
     pg.MemoryContextReset(data.*.context);
 }
