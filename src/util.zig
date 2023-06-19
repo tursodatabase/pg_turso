@@ -59,12 +59,12 @@ fn print_literal(stmt_buf: []u8, arg_typid: pg.Oid, arg_outputstr: [*c]u8) usize
     return offset;
 }
 
-pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.HeapTuple) usize {
+pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.HeapTuple) !usize {
     var tupdesc = arg_tupdesc;
     var tuple = arg_tuple;
     var natt: usize = 0;
     var printed: usize = 0;
-    _ = std.fmt.bufPrint(stmt_buf, "(", .{}) catch unreachable;
+    _ = try std.fmt.bufPrint(stmt_buf, "(", .{});
 
     var offset: usize = 1;
     while (natt < tupdesc.*.natts) : (natt += 1) {
@@ -77,15 +77,15 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
             continue;
         }
         if (printed > 0) {
-            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            _ = try std.fmt.bufPrint(stmt_buf[offset..], ",", .{});
             offset += 1;
         }
         printed += 1;
-        const entry = std.fmt.bufPrint(stmt_buf[offset..], "{s}", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))}) catch unreachable;
+        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
         offset += entry.len;
     }
 
-    _ = std.fmt.bufPrint(stmt_buf[offset..], ") VALUES (", .{}) catch unreachable;
+    _ = try std.fmt.bufPrint(stmt_buf[offset..], ") VALUES (", .{});
     offset += 10;
 
     printed = 0;
@@ -104,11 +104,11 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
         if (isnull) {
             continue;
             // NOTICE: nulls are not interesting for inserts
-            //_ = std.fmt.bufPrint(stmt_buf[offset..], "null", .{}) catch unreachable;
+            //_ = try std.fmt.bufPrint(stmt_buf[offset..], "null", .{});
             //offset += 4;
         }
         if (printed > 0) {
-            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            _ = try std.fmt.bufPrint(stmt_buf[offset..], ",", .{});
             offset += 1;
         }
         printed += 1;
@@ -122,12 +122,12 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
         }
     }
-    _ = std.fmt.bufPrint(stmt_buf[offset..], ")", .{}) catch unreachable;
+    _ = try std.fmt.bufPrint(stmt_buf[offset..], ")", .{});
     offset += 1;
     return offset;
 }
 
-pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTuple, previous_tuple: pg.HeapTuple) usize {
+pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTuple, previous_tuple: pg.HeapTuple) !usize {
     var printed: usize = 0;
     var natt: usize = 0;
     var offset: usize = 0;
@@ -154,15 +154,15 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTup
             continue;
         }
         if (printed > 0) {
-            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            _ = try std.fmt.bufPrint(stmt_buf[offset..], ",", .{});
             offset += 1;
         }
         printed += 1;
-        const entry = std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))}) catch unreachable;
+        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
         offset += entry.len;
         std.debug.print("xPartial: {s}\n", .{stmt_buf[0..offset]});
         if (new_isnull) {
-            _ = std.fmt.bufPrint(stmt_buf[offset..], "null", .{}) catch unreachable;
+            _ = try std.fmt.bufPrint(stmt_buf[offset..], "null", .{});
             offset += 4;
         } else if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, new_val).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, new_val).*.va_tag)) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
@@ -175,7 +175,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTup
         }
     }
 
-    _ = std.fmt.bufPrint(stmt_buf[offset..], " WHERE ", .{}) catch unreachable;
+    _ = try std.fmt.bufPrint(stmt_buf[offset..], " WHERE ", .{});
     offset += 7;
 
     // FIXME: figure out the WHERE key = X part properly
@@ -204,11 +204,11 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTup
             continue;
         }
         if (printed > 0) {
-            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            _ = try std.fmt.bufPrint(stmt_buf[offset..], ",", .{});
             offset += 1;
         }
         printed += 1;
-        const entry = std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))}) catch unreachable;
+        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
         offset += entry.len;
         if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, previous_val).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, previous_val).*.va_tag)) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
@@ -224,7 +224,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTup
     return offset;
 }
 
-pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.HeapTuple) usize {
+pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.HeapTuple) !usize {
     var tupdesc = arg_tupdesc;
     var tuple = arg_tuple;
     var natt: usize = 0;
@@ -246,18 +246,18 @@ pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
             continue;
         }
         if (printed == 0) {
-            const entry = std.fmt.bufPrint(stmt_buf[offset..], "WHERE ", .{}) catch unreachable;
+            const entry = try std.fmt.bufPrint(stmt_buf[offset..], "WHERE ", .{});
             offset += entry.len;
         } else if (printed > 0) {
-            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            _ = try std.fmt.bufPrint(stmt_buf[offset..], ",", .{});
             offset += 1;
         }
         printed += 1;
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
-        const entry = std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))}) catch unreachable;
+        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
         offset += entry.len;
         if (isnull) {
-            _ = std.fmt.bufPrint(stmt_buf[offset..], "null", .{}) catch unreachable;
+            _ = try std.fmt.bufPrint(stmt_buf[offset..], "null", .{});
             offset += 4;
         } else if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, origval).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, origval).*.va_tag)) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});

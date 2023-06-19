@@ -122,10 +122,10 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
         // FIXME: accept URLs and tokens longer than 256B
         if (std.mem.eql(u8, elem.*.defname[0..3], "url")) {
             const url_string = std.mem.span(@ptrCast([*c]pg.String, @alignCast(@import("std").meta.alignment([*c]pg.String), elem.*.arg)).*.sval);
-            data.*.url = std.fmt.allocPrint(allocator, "{s}", .{url_string}) catch unreachable; // FIXME: handle errors
+            data.*.url = std.fmt.allocPrint(allocator, "{s}", .{url_string}) catch unreachable;
         } else if (std.mem.eql(u8, elem.*.defname[0..4], "auth") or std.mem.eql(u8, elem.*.defname[0..5], "token")) {
             const auth_string = std.mem.span(@ptrCast([*c]pg.String, @alignCast(@import("std").meta.alignment([*c]pg.String), elem.*.arg)).*.sval);
-            data.*.auth = std.fmt.allocPrint(allocator, "Bearer {s}", .{auth_string}) catch unreachable; // FIXME: handle errors
+            data.*.auth = std.fmt.allocPrint(allocator, "Bearer {s}", .{auth_string}) catch unreachable;
         }
     }
     std.debug.print("URL {s} with auth {s}\n", .{ data.*.url, data.*.auth });
@@ -150,7 +150,7 @@ pub fn pgturso_begin_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.Reorder
 // We could create the full JSON object here, but it's more efficient to operate on a list of statements,
 // and only wrap them into an object right before sending them to Turso.
 fn init_stmt_list() std.json.Array {
-    return std.json.Array.initCapacity(allocator, 3) catch unreachable; // FIXME: handle errors
+    return std.json.Array.initCapacity(allocator, 3) catch unreachable;
 }
 
 pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, relation: pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
@@ -182,12 +182,12 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             if (change.*.data.tp.newtuple == null) {
                 std.debug.print("INSERT: (no-tuple-data)", .{});
             } else {
-                offset += print_insert(stmt_buf[offset..], tupdesc, &change.*.data.tp.newtuple.*.tuple);
+                offset += print_insert(stmt_buf[offset..], tupdesc, &change.*.data.tp.newtuple.*.tuple) catch unreachable;
                 if (offset == 0) {
                     std.debug.print("NO INSERT INFO!!!", .{});
                 } else {
                     std.debug.print("Statement: {s}\n", .{stmt_buf[0..offset]});
-                    const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable; // FIXME: handle errors
+                    const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable;
                     txndata.?.*.stmt_list.append(std.json.Value{ .string = stmt }) catch unreachable;
                 }
             }
@@ -202,12 +202,12 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             if (change.*.data.tp.newtuple == null) {
                 std.debug.print("UPDATE (no-tuple-data)", .{});
             } else {
-                offset += print_update(stmt_buf[offset..], tupdesc, &change.*.data.tp.newtuple.*.tuple, oldtuple);
+                offset += print_update(stmt_buf[offset..], tupdesc, &change.*.data.tp.newtuple.*.tuple, oldtuple) catch unreachable;
                 if (offset == 0) {
                     std.debug.print("NO UPDATE INFO!!!", .{});
                 } else {
                     std.debug.print("Statement: {s}\n", .{stmt_buf[0..offset]});
-                    const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable; // FIXME: handle errors
+                    const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable;
                     txndata.?.*.stmt_list.append(std.json.Value{ .string = stmt }) catch unreachable;
                 }
             }
@@ -230,12 +230,12 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             if (change.*.data.tp.oldtuple == null) {
                 std.debug.print("DELETE: (no-tuple-data)", .{});
             } else {
-                offset += print_delete(stmt_buf[offset..], tupdesc, &change.*.data.tp.oldtuple.*.tuple);
+                offset += print_delete(stmt_buf[offset..], tupdesc, &change.*.data.tp.oldtuple.*.tuple) catch unreachable;
                 if (offset == 0) {
                     std.debug.print("NO DELETE INFO!!!", .{});
                 } else {
                     std.debug.print("Statement: {s}\n", .{stmt_buf[0..offset]});
-                    const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable; // FIXME: handle errors
+                    const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable;
                     txndata.?.*.stmt_list.append(std.json.Value{ .string = stmt }) catch unreachable;
                 }
             }
