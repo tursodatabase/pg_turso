@@ -63,16 +63,24 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
     var tupdesc = arg_tupdesc;
     var tuple = arg_tuple;
     var natt: usize = 0;
+    var printed: usize = 0;
     _ = std.fmt.bufPrint(stmt_buf, "(", .{}) catch unreachable;
+
     var offset: usize = 1;
     while (natt < tupdesc.*.natts) : (natt += 1) {
-        if (natt > 0) {
-            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
-            offset += 1;
-        }
         var attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
         if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
+        var isnull: bool = undefined;
+        _ = pg.heap_getattr(tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+        if (isnull) {
+            continue;
+        }
+        if (printed > 0) {
+            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            offset += 1;
+        }
+        printed += 1;
         const entry = std.fmt.bufPrint(stmt_buf[offset..], "{s}", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))}) catch unreachable;
         offset += entry.len;
     }
@@ -80,12 +88,9 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
     _ = std.fmt.bufPrint(stmt_buf[offset..], ") VALUES (", .{}) catch unreachable;
     offset += 10;
 
+    printed = 0;
     natt = 0;
     while (natt < tupdesc.*.natts) : (natt += 1) {
-        if (natt > 0) {
-            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
-            offset += 1;
-        }
         var typoutput: pg.Oid = undefined;
         var typisvarlena: bool = undefined;
         var origval: pg.Datum = undefined;
@@ -96,6 +101,161 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
         var typid = attr.*.atttypid;
         origval = pg.heap_getattr(tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
+        if (isnull) {
+            continue;
+            // NOTICE: nulls are not interesting for inserts
+            //_ = std.fmt.bufPrint(stmt_buf[offset..], "null", .{}) catch unreachable;
+            //offset += 4;
+        }
+        if (printed > 0) {
+            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            offset += 1;
+        }
+        printed += 1;
+        if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, origval).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, origval).*.va_tag)) == pg.VARTAG_ONDISK))) {
+            std.debug.print("unchanged-toast-datum\n", .{});
+        } else if (!typisvarlena) {
+            offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, origval));
+        } else {
+            var val: pg.Datum = undefined;
+            val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(origval))))));
+            offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
+        }
+    }
+    _ = std.fmt.bufPrint(stmt_buf[offset..], ")", .{}) catch unreachable;
+    offset += 1;
+    return offset;
+}
+
+pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTuple, previous_tuple: pg.HeapTuple) usize {
+    var printed: usize = 0;
+    var natt: usize = 0;
+    var offset: usize = 0;
+
+    while (natt < tupdesc.*.natts) : (natt += 1) {
+        var typoutput: pg.Oid = undefined;
+        var typisvarlena: bool = undefined;
+        var new_val: pg.Datum = undefined;
+        var previous_isnull: bool = undefined;
+        var new_isnull: bool = undefined;
+        var attr = &tupdesc.*.attrs()[natt];
+        if (attr.*.attisdropped) continue;
+
+        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
+        var typid = attr.*.atttypid;
+        new_val = pg.heap_getattr(new_tuple, @intCast(c_int, natt + 1), tupdesc, &new_isnull);
+        if (previous_tuple == null) {
+            previous_isnull = true;
+        } else {
+            _ = pg.heap_getattr(previous_tuple, @intCast(c_int, natt + 1), tupdesc, &previous_isnull);
+        }
+        pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
+        if (new_isnull and previous_isnull) {
+            continue;
+        }
+        if (printed > 0) {
+            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            offset += 1;
+        }
+        printed += 1;
+        const entry = std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))}) catch unreachable;
+        offset += entry.len;
+        std.debug.print("xPartial: {s}\n", .{stmt_buf[0..offset]});
+        if (new_isnull) {
+            _ = std.fmt.bufPrint(stmt_buf[offset..], "null", .{}) catch unreachable;
+            offset += 4;
+        } else if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, new_val).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, new_val).*.va_tag)) == pg.VARTAG_ONDISK))) {
+            std.debug.print("unchanged-toast-datum\n", .{});
+        } else if (!typisvarlena) {
+            offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, new_val));
+        } else {
+            var val: pg.Datum = undefined;
+            val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(new_val))))));
+            offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
+        }
+    }
+
+    _ = std.fmt.bufPrint(stmt_buf[offset..], " WHERE ", .{}) catch unreachable;
+    offset += 7;
+
+    // FIXME: figure out the WHERE key = X part properly
+    printed = 0;
+    natt = 0;
+    while (natt < tupdesc.*.natts) : (natt += 1) {
+        var typoutput: pg.Oid = undefined;
+        var typisvarlena: bool = undefined;
+        var previous_val: pg.Datum = undefined;
+        var isnull: bool = undefined;
+        var attr = &tupdesc.*.attrs()[natt];
+        if (attr.*.attisdropped) continue;
+
+        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
+        var typid = attr.*.atttypid;
+
+        if (previous_tuple == null) {
+            std.debug.print("FIXME: previous_tuple is null, and we're not handling this case correctly!!!!!! We need to somehow extract key information from the schema and use only key columns for the WHERE key = x clause\n", .{});
+            continue;
+        }
+
+        previous_val = pg.heap_getattr(previous_tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+        pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
+        if (isnull) {
+            // do not print nulls when emitting information about the old key
+            continue;
+        }
+        if (printed > 0) {
+            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            offset += 1;
+        }
+        printed += 1;
+        const entry = std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))}) catch unreachable;
+        offset += entry.len;
+        if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, previous_val).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, previous_val).*.va_tag)) == pg.VARTAG_ONDISK))) {
+            std.debug.print("unchanged-toast-datum\n", .{});
+        } else if (!typisvarlena) {
+            offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, previous_val));
+        } else {
+            var val: pg.Datum = undefined;
+            val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(previous_val))))));
+            offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
+        }
+    }
+
+    return offset;
+}
+
+pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.HeapTuple) usize {
+    var tupdesc = arg_tupdesc;
+    var tuple = arg_tuple;
+    var natt: usize = 0;
+    var printed: usize = 0;
+    var offset: usize = 0;
+
+    natt = 0;
+    while (natt < tupdesc.*.natts) : (natt += 1) {
+        var typoutput: pg.Oid = undefined;
+        var typisvarlena: bool = undefined;
+        var origval: pg.Datum = undefined;
+        var isnull: bool = undefined;
+        var attr = &tupdesc.*.attrs()[natt];
+        if (attr.*.attisdropped) continue;
+        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
+        var typid = attr.*.atttypid;
+        origval = pg.heap_getattr(tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+        if (isnull) {
+            continue;
+        }
+        if (printed == 0) {
+            const entry = std.fmt.bufPrint(stmt_buf[offset..], "WHERE ", .{}) catch unreachable;
+            offset += entry.len;
+        } else if (printed > 0) {
+            _ = std.fmt.bufPrint(stmt_buf[offset..], ",", .{}) catch unreachable;
+            offset += 1;
+        }
+        printed += 1;
+        pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
+        const entry = std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))}) catch unreachable;
+        offset += entry.len;
         if (isnull) {
             _ = std.fmt.bufPrint(stmt_buf[offset..], "null", .{}) catch unreachable;
             offset += 4;
@@ -109,8 +269,6 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
         }
     }
-    _ = std.fmt.bufPrint(stmt_buf[offset..], ")", .{}) catch unreachable;
-    offset += 1;
     return offset;
 }
 

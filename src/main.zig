@@ -10,6 +10,8 @@ const pg = @cImport({
 });
 
 const print_insert = @import("util.zig").print_insert;
+const print_update = @import("util.zig").print_update;
+const print_delete = @import("util.zig").print_delete;
 const replicate = @import("util.zig").replicate;
 
 // Magic PostgreSQL symbols to indicate it's a loadable module
@@ -71,12 +73,14 @@ pub export fn _PG_output_plugin_init(arg_cb: [*c]pg.OutputPluginCallbacks) void 
     //    cb.*.stream_truncate_cb = &pgturso_stream_truncate;
 }
 
+// Context for the whole plugin
 const PgTursoData = struct {
     context: pg.MemoryContext,
     url: []u8,
     auth: []u8,
 };
 
+// Context for a single transaction
 const PgTursoTxnData = struct {
     stmt_list: std.json.Array,
 };
@@ -149,10 +153,9 @@ fn init_stmt_list() std.json.Array {
     return std.json.Array.initCapacity(allocator, 3) catch unreachable; // FIXME: handle errors
 }
 
-pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_relation: pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
+pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, relation: pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
     var data: *PgTursoData = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), ctx.*.output_plugin_private));
     var txndata: ?*PgTursoTxnData = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), txn.*.output_plugin_private));
-    var relation = arg_relation;
     var change = arg_change;
     var class_form: pg.Form_pg_class = relation.*.rd_rel;
     var tupdesc: pg.TupleDesc = relation.*.rd_att;
@@ -177,7 +180,7 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             const prefix = std.fmt.bufPrint(&stmt_buf, "INSERT INTO {s} ", .{table}) catch unreachable;
             var offset = prefix.len;
             if (change.*.data.tp.newtuple == null) {
-                std.debug.print(" (no-tuple-data)", .{});
+                std.debug.print("INSERT: (no-tuple-data)", .{});
             } else {
                 offset += print_insert(stmt_buf[offset..], tupdesc, &change.*.data.tp.newtuple.*.tuple);
                 if (offset == 0) {
@@ -190,8 +193,25 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             }
         },
         1 => {
-            // NOTICE: translated.zig contains the original code for reference
-            std.debug.print("out: UPDATE {s} \n", .{table});
+            const prefix = std.fmt.bufPrint(&stmt_buf, "UPDATE {s} SET ", .{table}) catch unreachable;
+            var offset = prefix.len;
+            var oldtuple: pg.HeapTuple = null;
+            if (change.*.data.tp.oldtuple != null) {
+                oldtuple = &change.*.data.tp.oldtuple.*.tuple;
+            }
+            if (change.*.data.tp.newtuple == null) {
+                std.debug.print("UPDATE (no-tuple-data)", .{});
+            } else {
+                offset += print_update(stmt_buf[offset..], tupdesc, &change.*.data.tp.newtuple.*.tuple, oldtuple);
+                if (offset == 0) {
+                    std.debug.print("NO UPDATE INFO!!!", .{});
+                } else {
+                    std.debug.print("Statement: {s}\n", .{stmt_buf[0..offset]});
+                    const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable; // FIXME: handle errors
+                    txndata.?.*.stmt_list.append(std.json.Value{ .string = stmt }) catch unreachable;
+                }
+            }
+            // NOTICE: old code, from translate-c
             //if (change.*.data.tp.oldtuple != @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
             //    appendStringInfoString(ctx.*.out, " old-key:");
             //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.oldtuple.*.tuple, @as(c_int, 1) != 0);
@@ -205,15 +225,20 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             //break;
         },
         2 => {
-            // NOTICE: translated.zig contains the original code for reference
-            std.debug.print("out: DELETE FROM {s}\n", .{table});
-            //appendStringInfoString(ctx.*.out, " DELETE:");
-            //if (change.*.data.tp.oldtuple == @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
-            //    appendStringInfoString(ctx.*.out, " (no-tuple-data)");
-            //} else {
-            //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.oldtuple.*.tuple, @as(c_int, 1) != 0);
-            //}
-            //break;
+            const prefix = std.fmt.bufPrint(&stmt_buf, "DELETE FROM {s} ", .{table}) catch unreachable;
+            var offset = prefix.len;
+            if (change.*.data.tp.oldtuple == null) {
+                std.debug.print("DELETE: (no-tuple-data)", .{});
+            } else {
+                offset += print_delete(stmt_buf[offset..], tupdesc, &change.*.data.tp.oldtuple.*.tuple);
+                if (offset == 0) {
+                    std.debug.print("NO DELETE INFO!!!", .{});
+                } else {
+                    std.debug.print("Statement: {s}\n", .{stmt_buf[0..offset]});
+                    const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable; // FIXME: handle errors
+                    txndata.?.*.stmt_list.append(std.json.Value{ .string = stmt }) catch unreachable;
+                }
+            }
         },
         else => {
             std.debug.print("???\n", .{});
