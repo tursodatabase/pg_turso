@@ -13,9 +13,7 @@ jobs:
         with:
           submodules: recursive
       - uses: goto-bus-stop/setup-zig@v2
-      - run: cd postgres && ./configure
-      - run: cd postgres/src/include && make
-      - run: zig build
+      - run: make
   lint:
     runs-on: ubuntu-latest
     steps:
