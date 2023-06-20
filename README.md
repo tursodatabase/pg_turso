@@ -9,31 +9,22 @@ Super early development, with most of the stuff barely working.
 * Schema is not propagated anywhere - `CREATE TABLE` is not ever sent from the plugin, so we need some way to figure out schema changes.
 * Batches. No point in sending cdc updates one at a time
 
-## How to build
+## Installation
 
 This guide assumes that you have a local installation of Postgres. Get one from https://www.postgresql.org/download/
 
-1. Download zig 0.11 or higher: https://ziglang.org/download/
-2. Initialize and generate headers in the Postgres submodule, once:
-   ```sh
-   git submodule update --init --recursive
-   ( cd postgres && ./configure && cd src/include && make)
-   ```
-3. Format (optional)
-   ```sh
-   zig fmt src/*
-   ```
-4. Build
-   ```sh
-   zig build -freference-trace
-   ```
-5. Install in the Postgres extensions directory, e.g.
-   ```
-   cp zig-out/lib/libpgturso.so /usr/lib64/postgresql/pgturso.so
-   ```
-   I guess it's going to be dylib on Mac. Didn't check.
+Please note that you need to download zig development version 2023-06-20 or higher: https://ziglang.org/download/
 
-## How to use
+```sh
+cd /tmp
+git clone https://github.com/chiselstrike/pgturso.git
+cd pgturso
+export ZIG=<path where zig executable is>
+make
+make install # may need sudo
+```
+
+## Getting Started 
 
 The way replication plugins work is as follows.
 
