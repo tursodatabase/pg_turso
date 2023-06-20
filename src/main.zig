@@ -153,10 +153,9 @@ fn init_stmt_list() std.json.Array {
     return std.json.Array.initCapacity(allocator, 3) catch unreachable;
 }
 
-pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, relation: pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
+pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, relation: pg.Relation, change: [*c]pg.ReorderBufferChange) callconv(.C) void {
     var data: *PgTursoData = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), ctx.*.output_plugin_private));
     var txndata: ?*PgTursoTxnData = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), txn.*.output_plugin_private));
-    var change = arg_change;
     var class_form: pg.Form_pg_class = relation.*.rd_rel;
     var tupdesc: pg.TupleDesc = relation.*.rd_att;
     var old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
@@ -202,7 +201,9 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             if (change.*.data.tp.newtuple == null) {
                 std.debug.print("UPDATE (no-tuple-data)", .{});
             } else {
-                offset += print_update(stmt_buf[offset..], tupdesc, &change.*.data.tp.newtuple.*.tuple, oldtuple) catch unreachable;
+                const key_attrs: [*c]pg.Bitmapset = pg.RelationGetIndexAttrBitmap(relation, pg.INDEX_ATTR_BITMAP_PRIMARY_KEY);
+                defer pg.bms_free(key_attrs);
+                offset += print_update(stmt_buf[offset..], tupdesc, key_attrs, &change.*.data.tp.newtuple.*.tuple, oldtuple) catch unreachable;
                 if (offset == 0) {
                     std.debug.print("NO UPDATE INFO!!!", .{});
                 } else {

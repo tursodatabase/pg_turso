@@ -127,7 +127,7 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
     return offset;
 }
 
-pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTuple, previous_tuple: pg.HeapTuple) !usize {
+pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bitmapset, new_tuple: pg.HeapTuple, previous_tuple: pg.HeapTuple) !usize {
     var printed: usize = 0;
     var natt: usize = 0;
     var offset: usize = 0;
@@ -141,7 +141,11 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTup
         var attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
 
-        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
+        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) {
+            std.debug.print("Natt {} is a system attribute\n", .{attr.*.attnum});
+            continue;
+        }
+
         var typid = attr.*.atttypid;
         new_val = pg.heap_getattr(new_tuple, @intCast(c_int, natt + 1), tupdesc, &new_isnull);
         if (previous_tuple == null) {
@@ -149,6 +153,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTup
         } else {
             _ = pg.heap_getattr(previous_tuple, @intCast(c_int, natt + 1), tupdesc, &previous_isnull);
         }
+
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
         if (new_isnull and previous_isnull) {
             continue;
@@ -160,7 +165,6 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTup
         printed += 1;
         const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
         offset += entry.len;
-        std.debug.print("xPartial: {s}\n", .{stmt_buf[0..offset]});
         if (new_isnull) {
             _ = try std.fmt.bufPrint(stmt_buf[offset..], "null", .{});
             offset += 4;
@@ -178,26 +182,35 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTup
     _ = try std.fmt.bufPrint(stmt_buf[offset..], " WHERE ", .{});
     offset += 7;
 
-    // FIXME: figure out the WHERE key = X part properly
     printed = 0;
     natt = 0;
     while (natt < tupdesc.*.natts) : (natt += 1) {
         var typoutput: pg.Oid = undefined;
         var typisvarlena: bool = undefined;
-        var previous_val: pg.Datum = undefined;
+        var key: pg.Datum = undefined;
         var isnull: bool = undefined;
         var attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
 
         if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
-        var typid = attr.*.atttypid;
 
-        if (previous_tuple == null) {
-            std.debug.print("FIXME: previous_tuple is null, and we're not handling this case correctly!!!!!! We need to somehow extract key information from the schema and use only key columns for the WHERE key = x clause\n", .{});
+        if (pg.bms_is_member(attr.*.attnum - pg.FirstLowInvalidHeapAttributeNumber, key_attrs)) {
+            std.debug.print("{} is a key attribute\n", .{attr.*.attnum});
+        } else {
+            std.debug.print("{} is not a key attribute, skipping\n", .{attr.*.attnum});
             continue;
         }
 
-        previous_val = pg.heap_getattr(previous_tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+        var typid = attr.*.atttypid;
+
+        if (previous_tuple == null) {
+            std.debug.print("No previous tuple, taking data from the new tuple\n", .{});
+            key = pg.heap_getattr(new_tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+        } else {
+            std.debug.print("Previous tuple exists, taking data from the previous tuple\n", .{});
+            key = pg.heap_getattr(previous_tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+        }
+
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
         if (isnull) {
             // do not print nulls when emitting information about the old key
@@ -210,13 +223,13 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, new_tuple: pg.HeapTup
         printed += 1;
         const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
         offset += entry.len;
-        if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, previous_val).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, previous_val).*.va_tag)) == pg.VARTAG_ONDISK))) {
+        if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, key).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, key).*.va_tag)) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
         } else if (!typisvarlena) {
-            offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, previous_val));
+            offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, key));
         } else {
             var val: pg.Datum = undefined;
-            val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(previous_val))))));
+            val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(key))))));
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
         }
     }
