@@ -24,6 +24,18 @@ make install # may need sudo
 ```
 
 ## Getting Started 
+Let's assume that you have the following table and materialized view that you wish to replicate to the edge with Turso:
+```sql
+CREATE TABLE IF NOT EXISTS menu(dish_id int PRIMARY KEY, name text, price float);
+CREATE MATERIALIZED VIEW assorted_collection_of_dirt_cheap_dishes AS SELECT dish_id, name FROM menu WHERE price <= 2.99;
+```
+
+The Turso table corresponding to our materialized view can be created with the help of `turso db shell` as follows:
+```sql
+CREATE TABLE assorted_collection_of_dirt_cheap_dishes(dish_id int PRIMARY KEY ON CONFLICT REPLACE, name);
+```
+The process of creating the corresponding replication table in Turso will be automated in the future, but for now the table needs to be created manually.
+
 The way replication plugins work is as follows.
 
 First, you need to change your "wal level" to `logical`. Logical WAL means that WAL entries can be parsed
@@ -48,18 +60,17 @@ you compiled above, so `pgturso`.
 SELECT pg_create_logical_replication_slot('pgturso_slot', 'pgturso');
 ```
 
-Then, you can create a table and fill it with some data:
+Then, you can fill the table with some data:
 ```sql
-DROP TABLE IF EXISTS t;
-CREATE TABLE t(id int primary key, v text, v1 text, v2 int);
-INSERT INTO t VALUES (45, 'hey', 'turso', 14);
-INSERT INTO t VALUES (46, 'hello', 'postgres', 15);
+INSERT INTO menu VALUES (1, 'salami', 2.49);
+INSERT INTO menu VALUES (2, 'pastrami', 4.99);
+INSERT INTO menu VALUES (3, 'wasabi', 1.99);
 ```
 
-No replication happened yet. In Postgres, replication is triggered by calling a function. This function takes the replication slot name and optional parameters.
-PgTurso requires two parameters - the `url` and the `token`, to be able to communicate with a Turso instance.
+No replication has happened yet. In Postgres, replication is triggered by calling a function. This function takes the replication slot name and optional parameters.
+PgTurso requires two parameters - the `url` and the `token`, to be able to communicate with a Turso instance, e.g.
 ```sql
-SELECT * FROM pg_logical_slot_get_changes('pgturso_slot', NULL, NULL, 'url', 'http://127.0.0.1:8080/', 'auth', 's3cr3t');
+SELECT * FROM pg_logical_slot_get_changes('pgturso_slot', NULL, NULL, 'url', 'https://your-unique-link.turso.io/', 'auth', 's3cr3t-p4s5');
 ```
 Note that this is a regular `SELECT` statement, so you're free to fetch the secret token value from another table, if it should remain secret.
 
@@ -67,11 +78,7 @@ The call triggers parsing WAL and processing all the logical changes. These chan
 
 ## How to use the pgturso extension with helper functions
 
-0. (optional) Create an example materialized view for replication
-```sql
-CREATE TABLE IF NOT EXISTS t(id int PRIMARY KEY, v int, v1 text, v2 text);
-CREATE MATERIALIZED VIEW testview AS SELECT id, v2 FROM t WHERE id <= 42;
-```
+Instead of replicating manually, you can use our `pgturso` extension. It's based on [pg_cron](https://github.com/citusdata/pg_cron) and allows the replication to be automated.
 
 1. Set up Turso authentication - helper functions that return the database URL and token
 ```sql
@@ -86,5 +93,7 @@ CREATE OR REPLACE FUNCTION turso_url() RETURNS text LANGUAGE SQL AS $$ SELECT 'h
 
 ```sql
 CREATE EXTENSION pgturso;
-SELECT turso_schedule_mv_replication('tursoview', '5 seconds');
+SELECT turso_schedule_mv_replication('assorted_collection_of_dirt_cheap_dishes', '5 seconds');
 ```
+
+Voilà! Your data is now replicated to Turso.
