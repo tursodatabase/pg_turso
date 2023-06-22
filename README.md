@@ -26,8 +26,12 @@ make install # may need sudo
 ## Getting Started 
 Let's assume that you have the following table and materialized view that you wish to replicate to the edge with Turso:
 ```sql
-CREATE TABLE IF NOT EXISTS menu(dish_id int PRIMARY KEY, name text, price float);
-CREATE MATERIALIZED VIEW assorted_collection_of_dirt_cheap_dishes AS SELECT dish_id, name FROM menu WHERE price <= 2.99;
+CREATE TABLE IF NOT EXISTS menu(
+   dish_id int PRIMARY KEY,
+   name text,
+   price float);
+CREATE MATERIALIZED VIEW assorted_collection_of_dirt_cheap_dishes
+  AS SELECT dish_id, name FROM menu WHERE price <= 2.99;
 ```
 
 The Turso table corresponding to our materialized view can be created with the help of `turso db shell` as follows:
