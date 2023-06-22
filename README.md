@@ -4,10 +4,9 @@ Postgres [output plugin](https://www.postgresql.org/docs/current/logicaldecoding
 
 ## Status
 
-Super early development, with most of the stuff barely working.
-* Only `INSERT` statements are generated at the moment. `DELETE`, `UPDATE`, and `TRUNCATE` should follow.
-* Schema is not propagated anywhere - `CREATE TABLE` is not ever sent from the plugin, so we need some way to figure out schema changes.
-* Batches. No point in sending cdc updates one at a time
+Replicating tables and views is more or less supported, but:
+1. Only basic types - integers and text - were tested. Postgres has way more types, and they may prove problematic to replicate. We can probably just cast them to generic binary blobs and replicate them in that form.
+2. Schema migration is still manual - the table needs to be created in Turso. That should be automated.
 
 ## Installation
 
@@ -25,7 +24,6 @@ make install # may need sudo
 ```
 
 ## Getting Started 
-
 The way replication plugins work is as follows.
 
 First, you need to change your "wal level" to `logical`. Logical WAL means that WAL entries can be parsed
@@ -66,3 +64,27 @@ SELECT * FROM pg_logical_slot_get_changes('pgturso_slot', NULL, NULL, 'url', 'ht
 Note that this is a regular `SELECT` statement, so you're free to fetch the secret token value from another table, if it should remain secret.
 
 The call triggers parsing WAL and processing all the logical changes. These changes are sent to Turso.
+
+## How to use the pgturso extension with helper functions
+
+0. (optional) Create an example materialized view for replication
+```sql
+CREATE TABLE IF NOT EXISTS t(id int PRIMARY KEY, v int, v1 text, v2 text);
+CREATE MATERIALIZED VIEW testview AS SELECT id, v2 FROM t WHERE id <= 42;
+```
+
+1. Set up Turso authentication - helper functions that return the database URL and token
+```sql
+-- token
+CREATE OR REPLACE FUNCTION turso_token() RETURNS text LANGUAGE SQL AS $$ SELECT <your-token-generated-with-turso-db-tokens-create>; $$;
+
+-- url
+CREATE OR REPLACE FUNCTION turso_url() RETURNS text LANGUAGE SQL AS $$ SELECT 'https://workerscounter-psarna.turso.io/'; $$;
+```
+
+2. Load the extension and schedule replication. The interval accepts `pg_cron` syntax.
+
+```sql
+CREATE EXTENSION pgturso;
+SELECT turso_schedule_mv_replication('tursoview', '5 seconds');
+```

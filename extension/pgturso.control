@@ -1,0 +1,6 @@
+# pgturso extension
+comment = 'set up logical replication to Turso database'
+default_version = '1.0'
+module_pathname = '$libdir/pgturso'
+relocatable = true
+requires = 'pg_cron'
