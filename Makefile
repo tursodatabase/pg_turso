@@ -22,7 +22,11 @@ all:
 
 PG_CONFIG ?= pg_config
 PKGLIBDIR=$(shell $(PG_CONFIG) --pkglibdir)
+EXTDIR=$(shell $(PG_CONFIG) --sharedir)/extension/
 
 install:
 	install -m 755 zig-out/lib/libpgturso.so $(PKGLIBDIR)/pgturso.so
+	install -m 755 extension/pgturso--1.0.sql $(EXTDIR)/pgturso--1.0.sql
+	install -m 755 extension/pgturso.control $(EXTDIR)/pgturso.control
+
 .PHONY: install
