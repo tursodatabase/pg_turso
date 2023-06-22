@@ -112,7 +112,7 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
             offset += 1;
         }
         printed += 1;
-        if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, origval).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, origval).*.va_tag)) == pg.VARTAG_ONDISK))) {
+        if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b, origval).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b_e, origval).*.va_tag)) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
         } else if (!typisvarlena) {
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, origval));
@@ -172,7 +172,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
         if (new_isnull) {
             _ = try std.fmt.bufPrint(stmt_buf[offset..], "null", .{});
             offset += 4;
-        } else if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, new_val).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, new_val).*.va_tag)) == pg.VARTAG_ONDISK))) {
+        } else if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b, new_val).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b_e, new_val).*.va_tag)) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
         } else if (!typisvarlena) {
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, new_val));
@@ -227,7 +227,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
         printed += 1;
         const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
         offset += entry.len;
-        if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, key).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, key).*.va_tag)) == pg.VARTAG_ONDISK))) {
+        if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b, key).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b_e, key).*.va_tag)) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
         } else if (!typisvarlena) {
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, key));
@@ -276,7 +276,7 @@ pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
         if (isnull) {
             _ = try std.fmt.bufPrint(stmt_buf[offset..], "null", .{});
             offset += 4;
-        } else if ((@as(c_int, @boolToInt(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b, origval).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @intToPtr([*c]pg.varattrib_1b_e, origval).*.va_tag)) == pg.VARTAG_ONDISK))) {
+        } else if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b, origval).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b_e, origval).*.va_tag)) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
         } else if (!typisvarlena) {
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, origval));
