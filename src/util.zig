@@ -136,10 +136,13 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
         var typoutput: pg.Oid = undefined;
         var typisvarlena: bool = undefined;
         var new_val: pg.Datum = undefined;
-        var previous_isnull: bool = undefined;
+        var previous_exists_and_is_null: bool = undefined;
         var new_isnull: bool = undefined;
         var attr = &tupdesc.*.attrs()[natt];
-        if (attr.*.attisdropped) continue;
+        if (attr.*.attisdropped) {
+            std.debug.print("Attr {} is dropped\n", .{attr.*.attnum});
+            continue;
+        }
 
         if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) {
             std.debug.print("Natt {} is a system attribute\n", .{attr.*.attnum});
@@ -149,13 +152,14 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
         var typid = attr.*.atttypid;
         new_val = pg.heap_getattr(new_tuple, @intCast(c_int, natt + 1), tupdesc, &new_isnull);
         if (previous_tuple == null) {
-            previous_isnull = true;
+            previous_exists_and_is_null = false;
         } else {
-            _ = pg.heap_getattr(previous_tuple, @intCast(c_int, natt + 1), tupdesc, &previous_isnull);
+            _ = pg.heap_getattr(previous_tuple, @intCast(c_int, natt + 1), tupdesc, &previous_exists_and_is_null);
         }
 
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
-        if (new_isnull and previous_isnull) {
+        if (new_isnull and previous_exists_and_is_null) {
+            std.debug.print("The new value is null and so was the previous one, skipping\n", .{});
             continue;
         }
         if (printed > 0) {

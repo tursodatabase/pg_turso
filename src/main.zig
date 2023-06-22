@@ -78,6 +78,7 @@ const PgTursoData = struct {
     context: pg.MemoryContext,
     url: []u8,
     auth: []u8,
+    table_name: []u8, // TODO: we can go wild with configuration later, make it a list of tables, etc.
 };
 
 // Context for a single transaction
@@ -126,9 +127,14 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
         } else if (std.mem.eql(u8, elem.*.defname[0..4], "auth") or std.mem.eql(u8, elem.*.defname[0..5], "token")) {
             const auth_string = std.mem.span(@ptrCast([*c]pg.String, @alignCast(@import("std").meta.alignment([*c]pg.String), elem.*.arg)).*.sval);
             data.*.auth = std.fmt.allocPrint(allocator, "Bearer {s}", .{auth_string}) catch unreachable;
+        } else if (std.mem.eql(u8, elem.*.defname[0..10], "table_name")) {
+            const table_name_string = std.mem.span(@ptrCast([*c]pg.String, @alignCast(@import("std").meta.alignment([*c]pg.String), elem.*.arg)).*.sval);
+            data.*.table_name = std.fmt.allocPrint(allocator, "{s}", .{table_name_string}) catch unreachable;
+        } else {
+            std.debug.print("pgturso_startup: unknown option: {s}\n", .{elem.*.defname});
         }
+        std.debug.print("Replicated table name: {s}\n", .{data.*.table_name});
     }
-    std.debug.print("URL {s} with auth {s}\n", .{ data.*.url, data.*.auth });
 
     // TODO: what's streaming?
     ctx.*.streaming = false;
@@ -138,6 +144,7 @@ pub fn pgturso_shutdown(arg_ctx: [*c]pg.LogicalDecodingContext) callconv(.C) voi
     var data: *PgTursoData = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), arg_ctx.*.output_plugin_private));
     allocator.free(data.*.url);
     allocator.free(data.*.auth);
+    allocator.free(data.*.table_name);
     pg.MemoryContextDelete(data.*.context);
 }
 
@@ -160,6 +167,15 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
     var tupdesc: pg.TupleDesc = relation.*.rd_att;
     var old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
 
+    // NOTICE: it's easy to get qualified names with pg_quote_qualified_identifier,
+    // but let's simplify it without namespaces for now.
+    const table = if (class_form.*.relrewrite != 0) pg.get_rel_name(class_form.*.relrewrite) else @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &class_form.*.relname.data));
+
+    if (!std.mem.eql(u8, std.mem.span(table), data.*.table_name)) {
+        std.debug.print("Ignoring table <{s}>, because it's not <{s}>.\n", .{ table, data.*.table_name });
+        return;
+    }
+
     // Initialize transaction data if it's not there yet
     if (txndata == null) {
         txndata = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), pg.MemoryContextAllocZero(ctx.*.context, @sizeOf(PgTursoTxnData))));
@@ -168,14 +184,10 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
         txndata.?.*.stmt_list.append(std.json.Value{ .string = "BEGIN" }) catch unreachable;
     }
 
-    // NOTICE: it's easy to get qualified names with pg_quote_qualified_identifier,
-    // but let's simplify it without namespaces for now.
-    const table = if (class_form.*.relrewrite != 0) pg.get_rel_name(class_form.*.relrewrite) else @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &class_form.*.relname.data));
-
     var stmt_buf: [65536]u8 = undefined; // TODO: is this static limit good enough?
 
     switch (change.*.action) {
-        0 => {
+        pg.REORDER_BUFFER_CHANGE_INSERT => {
             const prefix = std.fmt.bufPrint(&stmt_buf, "INSERT INTO {s} ", .{table}) catch unreachable;
             var offset = prefix.len;
             if (change.*.data.tp.newtuple == null) {
@@ -191,7 +203,7 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
                 }
             }
         },
-        1 => {
+        pg.REORDER_BUFFER_CHANGE_UPDATE => {
             const prefix = std.fmt.bufPrint(&stmt_buf, "UPDATE {s} SET ", .{table}) catch unreachable;
             var offset = prefix.len;
             var oldtuple: pg.HeapTuple = null;
@@ -212,20 +224,8 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
                     txndata.?.*.stmt_list.append(std.json.Value{ .string = stmt }) catch unreachable;
                 }
             }
-            // NOTICE: old code, from translate-c
-            //if (change.*.data.tp.oldtuple != @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
-            //    appendStringInfoString(ctx.*.out, " old-key:");
-            //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.oldtuple.*.tuple, @as(c_int, 1) != 0);
-            //    appendStringInfoString(ctx.*.out, " new-tuple:");
-            //}
-            //if (change.*.data.tp.newtuple == @ptrCast([*c]ReorderBufferTupleBuf, @alignCast(@import("std").meta.alignment([*c]ReorderBufferTupleBuf), @intToPtr(?*anyopaque, @as(c_int, 0))))) {
-            //    appendStringInfoString(ctx.*.out, " (no-tuple-data)");
-            //} else {
-            //    tuple_to_stringinfo(ctx.*.out, tupdesc, &change.*.data.tp.newtuple.*.tuple, @as(c_int, 0) != 0);
-            //}
-            //break;
         },
-        2 => {
+        pg.REORDER_BUFFER_CHANGE_DELETE => {
             const prefix = std.fmt.bufPrint(&stmt_buf, "DELETE FROM {s} ", .{table}) catch unreachable;
             var offset = prefix.len;
             if (change.*.data.tp.oldtuple == null) {
@@ -242,7 +242,7 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             }
         },
         else => {
-            std.debug.print("???\n", .{});
+            std.debug.print("Unknown change\n", .{});
         },
     }
 
