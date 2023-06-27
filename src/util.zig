@@ -14,15 +14,15 @@ fn print_literal(stmt_buf: []u8, arg_typid: pg.Oid, arg_outputstr: [*c]u8) usize
     var valptr: [*c]const u8 = undefined;
     var offset: usize = 0;
     switch (typid) {
-        @bitCast(pg.Oid, @as(c_int, 21)), @bitCast(pg.Oid, @as(c_int, 23)), @bitCast(pg.Oid, @as(c_int, 20)), @bitCast(pg.Oid, @as(c_int, 26)), @bitCast(pg.Oid, @as(c_int, 700)), @bitCast(pg.Oid, @as(c_int, 701)), @bitCast(pg.Oid, @as(c_int, 1700)) => {
+        @as(pg.Oid, @bitCast(@as(c_int, 21))), @as(pg.Oid, @bitCast(@as(c_int, 23))), @as(pg.Oid, @bitCast(@as(c_int, 20))), @as(pg.Oid, @bitCast(@as(c_int, 26))), @as(pg.Oid, @bitCast(@as(c_int, 700))), @as(pg.Oid, @bitCast(@as(c_int, 701))), @as(pg.Oid, @bitCast(@as(c_int, 1700))) => {
             const entry = std.fmt.bufPrint(stmt_buf[offset..], "{s}", .{outputstr}) catch unreachable;
             offset += entry.len;
         },
-        @bitCast(pg.Oid, @as(c_int, 1560)), @bitCast(pg.Oid, @as(c_int, 1562)) => {
+        @as(pg.Oid, @bitCast(@as(c_int, 1560))), @as(pg.Oid, @bitCast(@as(c_int, 1562))) => {
             const entry = std.fmt.bufPrint(stmt_buf[offset..], "B'{s}'", .{outputstr}) catch unreachable;
             offset += entry.len;
         },
-        @bitCast(pg.Oid, @as(c_int, 16)) => {
+        @as(pg.Oid, @bitCast(@as(c_int, 16))) => {
             if (std.zig.c_builtins.__builtin_strcmp(outputstr, "t") == @as(c_int, 0)) {
                 _ = std.fmt.bufPrint(stmt_buf[offset..], "true", .{}) catch unreachable;
                 offset += 4;
@@ -31,7 +31,7 @@ fn print_literal(stmt_buf: []u8, arg_typid: pg.Oid, arg_outputstr: [*c]u8) usize
                 offset += 5;
             }
         },
-        @bitCast(pg.Oid, @as(c_int, 25)) => {
+        @as(pg.Oid, @bitCast(@as(c_int, 25))) => {
             const entry = std.fmt.bufPrint(stmt_buf[offset..], "'{s}'", .{outputstr}) catch unreachable;
             offset += entry.len;
         },
@@ -44,7 +44,7 @@ fn print_literal(stmt_buf: []u8, arg_typid: pg.Oid, arg_outputstr: [*c]u8) usize
                 valptr = outputstr;
                 while (valptr.* != 0) : (valptr += 1) {
                     var ch: u8 = valptr.*;
-                    if ((@bitCast(c_int, @as(c_uint, ch)) == @as(c_int, '\'')) or ((@bitCast(c_int, @as(c_uint, ch)) == @as(c_int, '\\')) and (@as(c_int, 0) != 0))) {
+                    if ((@as(c_int, @bitCast(@as(c_uint, ch))) == @as(c_int, '\'')) or ((@as(c_int, @bitCast(@as(c_uint, ch))) == @as(c_int, '\\')) and (@as(c_int, 0) != 0))) {
                         _ = std.fmt.bufPrint(stmt_buf[offset..], "{}", .{ch}) catch unreachable;
                         offset += 1;
                     }
@@ -70,9 +70,9 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
     while (natt < tupdesc.*.natts) : (natt += 1) {
         var attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
-        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
+        if (@as(c_int, @bitCast(@as(c_int, attr.*.attnum))) < @as(c_int, 0)) continue;
         var isnull: bool = undefined;
-        _ = pg.heap_getattr(tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+        _ = pg.heap_getattr(tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &isnull);
         if (isnull) {
             continue;
         }
@@ -81,7 +81,7 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
             offset += 1;
         }
         printed += 1;
-        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
+        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}", .{pg.quote_identifier(@as([*c]u8, @ptrCast(@alignCast(&attr.*.attname.data))))});
         offset += entry.len;
     }
 
@@ -97,9 +97,9 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
         var isnull: bool = undefined;
         var attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
-        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
+        if (@as(c_int, @bitCast(@as(c_int, attr.*.attnum))) < @as(c_int, 0)) continue;
         var typid = attr.*.atttypid;
-        origval = pg.heap_getattr(tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+        origval = pg.heap_getattr(tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &isnull);
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
         if (isnull) {
             continue;
@@ -112,13 +112,13 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
             offset += 1;
         }
         printed += 1;
-        if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b, origval).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b_e, origval).*.va_tag)) == pg.VARTAG_ONDISK))) {
+        if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@as(c_int, @bitCast(@as(c_uint, @as([*c]pg.varattrib_1b, @ptrFromInt(origval)).*.va_header))) == @as(c_int, 1)) and (@as(c_int, @bitCast(@as(c_uint, @as([*c]pg.varattrib_1b_e, @ptrFromInt(origval)).*.va_tag))) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
         } else if (!typisvarlena) {
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, origval));
         } else {
             var val: pg.Datum = undefined;
-            val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(origval))))));
+            val = pg.PointerGetDatum(@as(?*const anyopaque, @ptrCast(pg.pg_detoast_datum(@as([*c]pg.struct_varlena, @ptrCast(@alignCast(pg.DatumGetPointer(origval))))))));
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
         }
     }
@@ -144,17 +144,17 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
             continue;
         }
 
-        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) {
+        if (@as(c_int, @bitCast(@as(c_int, attr.*.attnum))) < @as(c_int, 0)) {
             std.debug.print("Natt {} is a system attribute\n", .{attr.*.attnum});
             continue;
         }
 
         var typid = attr.*.atttypid;
-        new_val = pg.heap_getattr(new_tuple, @intCast(c_int, natt + 1), tupdesc, &new_isnull);
+        new_val = pg.heap_getattr(new_tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &new_isnull);
         if (previous_tuple == null) {
             previous_exists_and_is_null = false;
         } else {
-            _ = pg.heap_getattr(previous_tuple, @intCast(c_int, natt + 1), tupdesc, &previous_exists_and_is_null);
+            _ = pg.heap_getattr(previous_tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &previous_exists_and_is_null);
         }
 
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
@@ -167,18 +167,18 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
             offset += 1;
         }
         printed += 1;
-        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
+        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@as([*c]u8, @ptrCast(@alignCast(&attr.*.attname.data))))});
         offset += entry.len;
         if (new_isnull) {
             _ = try std.fmt.bufPrint(stmt_buf[offset..], "null", .{});
             offset += 4;
-        } else if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b, new_val).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b_e, new_val).*.va_tag)) == pg.VARTAG_ONDISK))) {
+        } else if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@as(c_int, @bitCast(@as(c_uint, @as([*c]pg.varattrib_1b, @ptrFromInt(new_val)).*.va_header))) == @as(c_int, 1)) and (@as(c_int, @bitCast(@as(c_uint, @as([*c]pg.varattrib_1b_e, @ptrFromInt(new_val)).*.va_tag))) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
         } else if (!typisvarlena) {
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, new_val));
         } else {
             var val: pg.Datum = undefined;
-            val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(new_val))))));
+            val = pg.PointerGetDatum(@as(?*const anyopaque, @ptrCast(pg.pg_detoast_datum(@as([*c]pg.struct_varlena, @ptrCast(@alignCast(pg.DatumGetPointer(new_val))))))));
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
         }
     }
@@ -196,7 +196,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
         var attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
 
-        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
+        if (@as(c_int, @bitCast(@as(c_int, attr.*.attnum))) < @as(c_int, 0)) continue;
 
         if (pg.bms_is_member(attr.*.attnum - pg.FirstLowInvalidHeapAttributeNumber, key_attrs)) {
             std.debug.print("{} is a key attribute\n", .{attr.*.attnum});
@@ -209,10 +209,10 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
 
         if (previous_tuple == null) {
             std.debug.print("No previous tuple, taking data from the new tuple\n", .{});
-            key = pg.heap_getattr(new_tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+            key = pg.heap_getattr(new_tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &isnull);
         } else {
             std.debug.print("Previous tuple exists, taking data from the previous tuple\n", .{});
-            key = pg.heap_getattr(previous_tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+            key = pg.heap_getattr(previous_tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &isnull);
         }
 
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
@@ -225,15 +225,15 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
             offset += 1;
         }
         printed += 1;
-        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
+        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@as([*c]u8, @ptrCast(@alignCast(&attr.*.attname.data))))});
         offset += entry.len;
-        if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b, key).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b_e, key).*.va_tag)) == pg.VARTAG_ONDISK))) {
+        if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@as(c_int, @bitCast(@as(c_uint, @as([*c]pg.varattrib_1b, @ptrFromInt(key)).*.va_header))) == @as(c_int, 1)) and (@as(c_int, @bitCast(@as(c_uint, @as([*c]pg.varattrib_1b_e, @ptrFromInt(key)).*.va_tag))) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
         } else if (!typisvarlena) {
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, key));
         } else {
             var val: pg.Datum = undefined;
-            val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(key))))));
+            val = pg.PointerGetDatum(@as(?*const anyopaque, @ptrCast(pg.pg_detoast_datum(@as([*c]pg.struct_varlena, @ptrCast(@alignCast(pg.DatumGetPointer(key))))))));
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
         }
     }
@@ -256,9 +256,9 @@ pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
         var isnull: bool = undefined;
         var attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
-        if (@bitCast(c_int, @as(c_int, attr.*.attnum)) < @as(c_int, 0)) continue;
+        if (@as(c_int, @bitCast(@as(c_int, attr.*.attnum))) < @as(c_int, 0)) continue;
         var typid = attr.*.atttypid;
-        origval = pg.heap_getattr(tuple, @intCast(c_int, natt + 1), tupdesc, &isnull);
+        origval = pg.heap_getattr(tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &isnull);
         if (isnull) {
             continue;
         }
@@ -271,18 +271,18 @@ pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
         }
         printed += 1;
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
-        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &attr.*.attname.data)))});
+        const entry = try std.fmt.bufPrint(stmt_buf[offset..], "{s}=", .{pg.quote_identifier(@as([*c]u8, @ptrCast(@alignCast(&attr.*.attname.data))))});
         offset += entry.len;
         if (isnull) {
             _ = try std.fmt.bufPrint(stmt_buf[offset..], "null", .{});
             offset += 4;
-        } else if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b, origval).*.va_header)) == @as(c_int, 1)) and (@bitCast(c_int, @as(c_uint, @ptrFromInt([*c]pg.varattrib_1b_e, origval).*.va_tag)) == pg.VARTAG_ONDISK))) {
+        } else if ((@as(c_int, @intFromBool(typisvarlena)) != 0) and ((@as(c_int, @bitCast(@as(c_uint, @as([*c]pg.varattrib_1b, @ptrFromInt(origval)).*.va_header))) == @as(c_int, 1)) and (@as(c_int, @bitCast(@as(c_uint, @as([*c]pg.varattrib_1b_e, @ptrFromInt(origval)).*.va_tag))) == pg.VARTAG_ONDISK))) {
             std.debug.print("unchanged-toast-datum\n", .{});
         } else if (!typisvarlena) {
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, origval));
         } else {
             var val: pg.Datum = undefined;
-            val = pg.PointerGetDatum(@ptrCast(?*const anyopaque, pg.pg_detoast_datum(@ptrCast([*c]pg.struct_varlena, @alignCast(@import("std").meta.alignment([*c]pg.struct_varlena), pg.DatumGetPointer(origval))))));
+            val = pg.PointerGetDatum(@as(?*const anyopaque, @ptrCast(pg.pg_detoast_datum(@as([*c]pg.struct_varlena, @ptrCast(@alignCast(pg.DatumGetPointer(origval))))))));
             offset += print_literal(stmt_buf[offset..], typid, pg.OidOutputFunctionCall(typoutput, val));
         }
     }
