@@ -13,6 +13,7 @@ const print_insert = @import("util.zig").print_insert;
 const print_update = @import("util.zig").print_update;
 const print_delete = @import("util.zig").print_delete;
 const replicate = @import("util.zig").replicate;
+const span_text = @import("util.zig").span_text;
 
 // Magic PostgreSQL symbols to indicate it's a loadable module
 pub const PG_MAGIC_FUNCTION_NAME = Pg_magic_func;
@@ -379,20 +380,23 @@ pub fn pgturso_filter(arg_ctx: [*c]pg.LogicalDecodingContext, arg_origin_id: pg.
 //     std.debug.print("pgturso_stream_truncate {*} {*} {} {*} {*}\n", .{ arg_ctx, arg_txn, arg_nrelations, arg_relations, arg_change });
 // }
 
+//
 // User-defined functions
+//
 
 // TODO: make this function accept a schema, translate it to something that Turso understands,
 // and send it over the HTTP API.
 // Example how to instantiate the function in Postgres:
-//     CREATE FUNCTION turso_migrate(int, int) RETURNS int AS '/usr/lib/postgresql/pgturso' LANGUAGE C STRICT;
-pub export fn turso_migrate(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
+//     CREATE FUNCTION turso_send(url text, token text, data text) RETURNS text AS '/usr/lib/postgresql/pgturso' LANGUAGE C STRICT;
+pub export fn turso_send(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
     var fcinfo = arg_fcinfo;
-    var arg1: pg.int32 = @bitCast(@as(c_uint, @truncate(fcinfo.*.args()[0].value)));
-    var arg2: pg.int32 = @bitCast(@as(c_uint, @truncate(fcinfo.*.args()[1].value)));
-    std.debug.print("turso_migrate() currently only sums and doubles integers, sorry ¯\\_(ツ)_/¯.\nDatabase schema migration capabilities coming soon!: {} {}\n", .{ arg1, arg2 });
-    return @bitCast(@as(usize, @intCast((arg1 + arg2) * 2)));
+    var url: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[0].value);
+    var token: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[1].value);
+    var data: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[2].value);
+    std.debug.print("turso_send(): {s} {s} {s}\n", .{ span_text(url), span_text(token), span_text(data) });
+    return pg.PointerGetDatum(data); // return something useful here
 }
-pub export fn pg_finfo_turso_migrate() [*c]const pg.Pg_finfo_record {
+pub export fn pg_finfo_turso_send() [*c]const pg.Pg_finfo_record {
     const my_finfo = struct {
         const static: pg.Pg_finfo_record = pg.Pg_finfo_record{
             .api_version = 1,

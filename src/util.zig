@@ -315,3 +315,44 @@ pub fn replicate(url: []u8, auth: []u8, json_payload: std.json.Value) !void {
     std.debug.print("Response status: {}\n", .{req.response.status});
     try std.testing.expect(req.response.status == .ok); // FIXME: remove
 }
+
+// Macros that failed to get translated
+inline fn VARTAG_1B_E(PTR: anytype) @TypeOf(@import("std").zig.c_translation.cast([*c]pg.varattrib_1b_e, PTR).*.va_tag) {
+    return @import("std").zig.c_translation.cast([*c]pg.varattrib_1b_e, PTR).*.va_tag;
+}
+inline fn VARTAG_IS_EXPANDED(tag: anytype) @TypeOf((tag & ~@as(c_uint, 1)) == pg.VARTAG_EXPANDED_RO) {
+    return (tag & ~@as(c_uint, 1)) == pg.VARTAG_EXPANDED_RO;
+}
+inline fn VARTAG_SIZE(tag: anytype) @TypeOf(if (tag == pg.VARTAG_INDIRECT) @import("std").zig.c_translation.sizeof(pg.varatt_indirect) else if (VARTAG_IS_EXPANDED(tag)) @import("std").zig.c_translation.sizeof(pg.varatt_expanded) else if (tag == pg.VARTAG_ONDISK) @import("std").zig.c_translation.sizeof(pg.varatt_external) else pg.TrapMacro(pg.true, "unrecognized TOAST vartag")) {
+    return if (tag == pg.VARTAG_INDIRECT) @import("std").zig.c_translation.sizeof(pg.varatt_indirect) else if (VARTAG_IS_EXPANDED(tag)) @import("std").zig.c_translation.sizeof(pg.varatt_expanded) else if (tag == pg.VARTAG_ONDISK) @import("std").zig.c_translation.sizeof(pg.varatt_external) else pg.TrapMacro(pg.true, "unrecognized TOAST vartag");
+}
+inline fn VARSIZE_4B(PTR: anytype) @TypeOf((@import("std").zig.c_translation.cast([*c]pg.varattrib_4b, PTR).*.va_4byte.va_header >> 2) & @import("std").zig.c_translation.promoteIntLiteral(c_uint, 0x3FFFFFFF, .hexadecimal)) {
+    return (@import("std").zig.c_translation.cast([*c]pg.varattrib_4b, PTR).*.va_4byte.va_header >> 2) & @import("std").zig.c_translation.promoteIntLiteral(c_uint, 0x3FFFFFFF, .hexadecimal);
+}
+inline fn VARSIZE_1B(PTR: anytype) @TypeOf((@import("std").zig.c_translation.cast([*c]pg.varattrib_1b, PTR).*.va_header >> 1) & @as(c_uint, 0x7F)) {
+    return (@import("std").zig.c_translation.cast([*c]pg.varattrib_1b, PTR).*.va_header >> 1) & @as(c_uint, 0x7F);
+}
+inline fn VARATT_IS_1B(PTR: anytype) @TypeOf((@import("std").zig.c_translation.cast([*c]pg.varattrib_1b, PTR).*.va_header & @as(c_uint, 0x01)) == @as(c_uint, 0x01)) {
+    return (@import("std").zig.c_translation.cast([*c]pg.varattrib_1b, PTR).*.va_header & @as(c_uint, 0x01)) == @as(c_uint, 0x01);
+}
+inline fn VARATT_IS_1B_E(PTR: anytype) @TypeOf(@import("std").zig.c_translation.cast([*c]pg.varattrib_1b, PTR).*.va_header == @as(c_uint, 0x01)) {
+    return @import("std").zig.c_translation.cast([*c]pg.varattrib_1b, PTR).*.va_header == @as(c_uint, 0x01);
+}
+inline fn VARHDRSZ_EXTERNAL() c_uint {
+    return @sizeOf(pg.varattrib_1b_e); // NOTICE: original code used offsetof(pg.varattrib_1b_e, va_data), but va_data gets translated as a function, so it's no longer a field
+}
+inline fn VARHDRSZ_SHORT() c_uint {
+    return @sizeOf(pg.varattrib_1b); // NOTICE: original code used offsetof(pg.varattrib_1b_e, va_data), but va_data gets translated as a function, so it's no longer a field
+}
+inline fn VARSIZE_EXTERNAL(PTR: anytype) @TypeOf(VARHDRSZ_EXTERNAL() + VARTAG_SIZE(VARTAG_1B_E(PTR))) {
+    return VARHDRSZ_EXTERNAL() + VARTAG_SIZE(VARTAG_1B_E(PTR));
+}
+fn VARSIZE_ANY_EXHDR(PTR: anytype) @TypeOf(if (VARATT_IS_1B_E(PTR)) VARSIZE_EXTERNAL(PTR) - VARHDRSZ_EXTERNAL() else if (VARATT_IS_1B(PTR)) VARSIZE_1B(PTR) - VARHDRSZ_SHORT() else VARSIZE_4B(PTR) - pg.VARHDRSZ) {
+    return if (VARATT_IS_1B_E(PTR)) VARSIZE_EXTERNAL(PTR) - VARHDRSZ_EXTERNAL() else if (VARATT_IS_1B(PTR)) VARSIZE_1B(PTR) - VARHDRSZ_SHORT() else VARSIZE_4B(PTR) - pg.VARHDRSZ;
+}
+// End of macros that failed to get translated
+
+pub fn span_text(arg: [*c]pg.text) []u8 {
+    std.debug.print("varsize: {}", .{VARSIZE_ANY_EXHDR(arg)});
+    return arg.*.vl_dat()[0..@intCast(VARSIZE_ANY_EXHDR(arg))];
+}
