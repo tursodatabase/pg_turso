@@ -32,7 +32,7 @@ pub const Pg_magic_struct = extern struct {
 pub export fn Pg_magic_func() [*c]const Pg_magic_struct {
     const Pg_magic_data = struct {
         const static: Pg_magic_struct = Pg_magic_struct{
-            .len = @bitCast(c_int, @truncate(c_uint, @sizeOf(Pg_magic_struct))),
+            .len = @bitCast(@as(c_uint, @truncate(@sizeOf(Pg_magic_struct)))),
             .version = @divTrunc(@as(c_int, 150000), @as(c_int, 100)),
             .funcmaxargs = @as(c_int, 100),
             .indexmaxkeys = @as(c_int, 32),
@@ -97,11 +97,11 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
     _ = arg_is_init;
     // NOTICE: temporarily unused, but that's the place to insert the Turso URL and auth
     var data: *PgTursoData = undefined;
-    data = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), pg.palloc0(@sizeOf(PgTursoData))));
+    data = @as(*PgTursoData, @ptrCast(@alignCast(pg.palloc0(@sizeOf(PgTursoData)))));
     data.*.context = pg.AllocSetContextCreateInternal(ctx.*.context, "text conversion context", 0, 8 * 1024, 8 * 1024 * 1024);
     // TODO: verify what all this stuff actually means
-    ctx.*.output_plugin_private = @ptrCast(?*anyopaque, data);
-    opt.*.output_type = @bitCast(c_uint, pg.OUTPUT_PLUGIN_TEXTUAL_OUTPUT);
+    ctx.*.output_plugin_private = @as(?*anyopaque, @ptrCast(data));
+    opt.*.output_type = @bitCast(pg.OUTPUT_PLUGIN_TEXTUAL_OUTPUT);
     opt.*.receive_rewrites = true;
 
     var option: [*c]pg.ListCell = undefined;
@@ -112,23 +112,23 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
     while ((if ((option__state.l != null) and (option__state.i < option__state.l.*.length)) blk: {
         option = &(blk_1: {
             const tmp = option__state.i;
-            if (tmp >= 0) break :blk_1 option__state.l.*.elements + @intCast(usize, tmp) else break :blk_1 option__state.l.*.elements - ~@bitCast(usize, @intCast(isize, tmp) +% -1);
+            if (tmp >= 0) break :blk_1 option__state.l.*.elements + @as(usize, @intCast(tmp)) else break :blk_1 option__state.l.*.elements - ~@as(usize, @bitCast(@as(isize, @intCast(tmp)) +% -1));
         }).*;
         break :blk @as(c_int, 1);
     } else blk: {
         option = null;
         break :blk @as(c_int, 0);
     }) != 0) : (option__state.i += 1) {
-        var elem: [*c]pg.DefElem = @ptrCast([*c]pg.DefElem, @alignCast(@import("std").meta.alignment([*c]pg.DefElem), option.*.ptr_value));
+        var elem: [*c]pg.DefElem = @as([*c]pg.DefElem, @ptrCast(@alignCast(option.*.ptr_value)));
         // FIXME: accept URLs and tokens longer than 256B
         if (std.mem.eql(u8, elem.*.defname[0..3], "url")) {
-            const url_string = std.mem.span(@ptrCast([*c]pg.String, @alignCast(@import("std").meta.alignment([*c]pg.String), elem.*.arg)).*.sval);
+            const url_string = std.mem.span(@as([*c]pg.String, @ptrCast(@alignCast(elem.*.arg))).*.sval);
             data.*.url = std.fmt.allocPrint(allocator, "{s}", .{url_string}) catch unreachable;
         } else if (std.mem.eql(u8, elem.*.defname[0..4], "auth") or std.mem.eql(u8, elem.*.defname[0..5], "token")) {
-            const auth_string = std.mem.span(@ptrCast([*c]pg.String, @alignCast(@import("std").meta.alignment([*c]pg.String), elem.*.arg)).*.sval);
+            const auth_string = std.mem.span(@as([*c]pg.String, @ptrCast(@alignCast(elem.*.arg))).*.sval);
             data.*.auth = std.fmt.allocPrint(allocator, "Bearer {s}", .{auth_string}) catch unreachable;
         } else if (std.mem.eql(u8, elem.*.defname[0..10], "table_name")) {
-            const table_name_string = std.mem.span(@ptrCast([*c]pg.String, @alignCast(@import("std").meta.alignment([*c]pg.String), elem.*.arg)).*.sval);
+            const table_name_string = std.mem.span(@as([*c]pg.String, @ptrCast(@alignCast(elem.*.arg))).*.sval);
             data.*.table_name = std.fmt.allocPrint(allocator, "{s}", .{table_name_string}) catch unreachable;
         } else {
             std.debug.print("pgturso_startup: unknown option: {s}\n", .{elem.*.defname});
@@ -141,7 +141,7 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
 }
 
 pub fn pgturso_shutdown(arg_ctx: [*c]pg.LogicalDecodingContext) callconv(.C) void {
-    var data: *PgTursoData = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), arg_ctx.*.output_plugin_private));
+    var data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(arg_ctx.*.output_plugin_private)));
     allocator.free(data.*.url);
     allocator.free(data.*.auth);
     allocator.free(data.*.table_name);
@@ -161,15 +161,15 @@ fn init_stmt_list() std.json.Array {
 }
 
 pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, relation: pg.Relation, change: [*c]pg.ReorderBufferChange) callconv(.C) void {
-    var data: *PgTursoData = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), ctx.*.output_plugin_private));
-    var txndata: ?*PgTursoTxnData = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), txn.*.output_plugin_private));
+    var data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
+    var txndata: ?*PgTursoTxnData = @as(?*PgTursoTxnData, @ptrCast(@alignCast(txn.*.output_plugin_private)));
     var class_form: pg.Form_pg_class = relation.*.rd_rel;
     var tupdesc: pg.TupleDesc = relation.*.rd_att;
     var old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
 
     // NOTICE: it's easy to get qualified names with pg_quote_qualified_identifier,
     // but let's simplify it without namespaces for now.
-    const table = if (class_form.*.relrewrite != 0) pg.get_rel_name(class_form.*.relrewrite) else @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &class_form.*.relname.data));
+    const table = if (class_form.*.relrewrite != 0) pg.get_rel_name(class_form.*.relrewrite) else @as([*c]u8, @ptrCast(@alignCast(&class_form.*.relname.data)));
 
     if (!std.mem.eql(u8, std.mem.span(table), data.*.table_name)) {
         std.debug.print("Ignoring table <{s}>, because it's not <{s}>.\n", .{ table, data.*.table_name });
@@ -178,8 +178,8 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
 
     // Initialize transaction data if it's not there yet
     if (txndata == null) {
-        txndata = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), pg.MemoryContextAllocZero(ctx.*.context, @sizeOf(PgTursoTxnData))));
-        txn.*.output_plugin_private = @ptrCast(?*anyopaque, txndata);
+        txndata = @as(?*PgTursoTxnData, @ptrCast(@alignCast(pg.MemoryContextAllocZero(ctx.*.context, @sizeOf(PgTursoTxnData)))));
+        txn.*.output_plugin_private = @as(?*anyopaque, @ptrCast(txndata));
         txndata.?.*.stmt_list = init_stmt_list();
         txndata.?.*.stmt_list.append(std.json.Value{ .string = "BEGIN" }) catch unreachable;
     }
@@ -252,9 +252,9 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
 
 pub fn pgturso_commit_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_commit_lsn: pg.XLogRecPtr) callconv(.C) void {
     _ = arg_commit_lsn;
-    var data: *PgTursoData = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), ctx.*.output_plugin_private));
+    var data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
 
-    var txndata: ?*PgTursoTxnData = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), txn.*.output_plugin_private));
+    var txndata: ?*PgTursoTxnData = @as(?*PgTursoTxnData, @ptrCast(@alignCast(txn.*.output_plugin_private)));
     if (txndata == null) {
         std.debug.print("pgturso_commit_txn: no txndata\n", .{});
         return;
@@ -275,7 +275,7 @@ pub fn pgturso_commit_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.Reorde
         allocator.free(stmt.string);
     }
 
-    pg.pfree(@ptrCast(?*anyopaque, txndata));
+    pg.pfree(@as(?*anyopaque, @ptrCast(txndata)));
     txn.*.output_plugin_private = null;
 }
 
@@ -283,14 +283,14 @@ pub fn pgturso_truncate(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderB
     var nrelations = arg_nrelations;
     var relations = arg_relations;
     _ = arg_change;
-    var data = @ptrCast(*PgTursoData, @alignCast(@import("std").meta.alignment(*PgTursoData), ctx.*.output_plugin_private));
+    var data = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
     var old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
 
-    var txndata: ?*PgTursoTxnData = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), txn.*.output_plugin_private));
+    var txndata: ?*PgTursoTxnData = @as(?*PgTursoTxnData, @ptrCast(@alignCast(txn.*.output_plugin_private)));
     // Initialize transaction data if it's not there yet
     if (txndata == null) {
-        txndata = @ptrCast(?*PgTursoTxnData, @alignCast(@import("std").meta.alignment(?*PgTursoTxnData), pg.MemoryContextAllocZero(ctx.*.context, @sizeOf(PgTursoTxnData))));
-        txn.*.output_plugin_private = @ptrCast(?*anyopaque, txndata);
+        txndata = @as(?*PgTursoTxnData, @ptrCast(@alignCast(pg.MemoryContextAllocZero(ctx.*.context, @sizeOf(PgTursoTxnData)))));
+        txn.*.output_plugin_private = @as(?*anyopaque, @ptrCast(txndata));
         txndata.?.*.stmt_list = init_stmt_list();
         txndata.?.*.stmt_list.append(std.json.Value{ .string = "BEGIN" }) catch unreachable;
     }
@@ -298,10 +298,10 @@ pub fn pgturso_truncate(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderB
     var i: i32 = 0;
     while (i < nrelations) : (i += 1) {
         // TODO: rephrase this translate-c abomination and deduplicate getting qualified id
-        const table = @ptrCast([*c]u8, @alignCast(@import("std").meta.alignment([*c]u8), &(blk: {
+        const table = @as([*c]u8, @ptrCast(@alignCast(&(blk: {
             const tmp = i;
-            if (tmp >= 0) break :blk relations + @intCast(usize, tmp) else break :blk relations - ~@bitCast(usize, @intCast(isize, tmp) +% -1);
-        }).*.*.rd_rel.*.relname.data));
+            if (tmp >= 0) break :blk relations + @as(usize, @intCast(tmp)) else break :blk relations - ~@as(usize, @intCast(@as(isize, @intCast(tmp)) +% -1));
+        }).*.*.rd_rel.*.relname.data)));
         const stmt = std.fmt.allocPrint(allocator, "DELETE FROM {s}", .{table}) catch unreachable;
         txndata.?.*.stmt_list.append(std.json.Value{ .string = stmt }) catch unreachable;
     }
@@ -378,3 +378,25 @@ pub fn pgturso_filter(arg_ctx: [*c]pg.LogicalDecodingContext, arg_origin_id: pg.
 // pub fn pgturso_stream_truncate(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_nrelations: c_int, arg_relations: [*c]pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
 //     std.debug.print("pgturso_stream_truncate {*} {*} {} {*} {*}\n", .{ arg_ctx, arg_txn, arg_nrelations, arg_relations, arg_change });
 // }
+
+// User-defined functions
+
+// TODO: make this function accept a schema, translate it to something that Turso understands,
+// and send it over the HTTP API.
+// Example how to instantiate the function in Postgres:
+//     CREATE FUNCTION turso_migrate(int, int) RETURNS int AS '/usr/lib/postgresql/pgturso' LANGUAGE C STRICT;
+pub export fn turso_migrate(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
+    var fcinfo = arg_fcinfo;
+    var arg1: pg.int32 = @bitCast(@as(c_uint, @truncate(fcinfo.*.args()[0].value)));
+    var arg2: pg.int32 = @bitCast(@as(c_uint, @truncate(fcinfo.*.args()[1].value)));
+    std.debug.print("turso_migrate() currently only sums and doubles integers, sorry ¯\\_(ツ)_/¯.\nDatabase schema migration capabilities coming soon!: {} {}\n", .{ arg1, arg2 });
+    return @bitCast(@as(usize, @intCast((arg1 + arg2) * 2)));
+}
+pub export fn pg_finfo_turso_migrate() [*c]const pg.Pg_finfo_record {
+    const my_finfo = struct {
+        const static: pg.Pg_finfo_record = pg.Pg_finfo_record{
+            .api_version = 1,
+        };
+    };
+    return &my_finfo.static;
+}

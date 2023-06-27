@@ -20,6 +20,12 @@ all:
 	$(Q) $(ZIG) build
 .PHONY: all
 
+dev: fmt
+	$(Q) $(ZIG) build -freference-trace
+
+fmt:
+	$(Q) $(ZIG) fmt src/*
+
 PG_CONFIG ?= pg_config
 PKGLIBDIR=$(shell $(PG_CONFIG) --pkglibdir)
 EXTDIR=$(shell $(PG_CONFIG) --sharedir)/extension/
