@@ -378,3 +378,25 @@ pub fn pgturso_filter(arg_ctx: [*c]pg.LogicalDecodingContext, arg_origin_id: pg.
 // pub fn pgturso_stream_truncate(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_nrelations: c_int, arg_relations: [*c]pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
 //     std.debug.print("pgturso_stream_truncate {*} {*} {} {*} {*}\n", .{ arg_ctx, arg_txn, arg_nrelations, arg_relations, arg_change });
 // }
+
+// User-defined functions
+
+// TODO: make this function accept a schema, translate it to something that Turso understands,
+// and send it over the HTTP API.
+// Example how to instantiate the function in Postgres:
+//     CREATE FUNCTION turso_migrate(int, int) RETURNS int AS '/usr/lib/postgresql/pgturso' LANGUAGE C STRICT;
+pub export fn turso_migrate(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
+    var fcinfo = arg_fcinfo;
+    var arg1: pg.int32 = @bitCast(pg.int32, @truncate(c_uint, fcinfo.*.args()[0].value));
+    var arg2: pg.int32 = @bitCast(pg.int32, @truncate(c_uint, fcinfo.*.args()[1].value));
+    std.debug.print("turso_migrate() currently only sums and doubles integers, sorry ¯\\_(ツ)_/¯.\nDatabase schema migration capabilities coming soon!: {} {}\n", .{ arg1, arg2 });
+    return @bitCast(pg.Datum, @intCast(usize, (arg1 + arg2) * 2));
+}
+pub export fn pg_finfo_turso_migrate() [*c]const pg.Pg_finfo_record {
+    const my_finfo = struct {
+        const static: pg.Pg_finfo_record = pg.Pg_finfo_record{
+            .api_version = 1,
+        };
+    };
+    return &my_finfo.static;
+}
