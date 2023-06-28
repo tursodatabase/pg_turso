@@ -292,7 +292,7 @@ pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
-pub fn replicate(url: []u8, auth: []u8, json_payload: std.json.Value) !void {
+pub fn send(url: []u8, auth: []u8, json_payload: std.json.Value) !void {
     var client: std.http.Client = .{ .allocator = allocator };
     defer client.deinit();
 
@@ -350,9 +350,23 @@ inline fn VARSIZE_EXTERNAL(PTR: anytype) @TypeOf(VARHDRSZ_EXTERNAL() + VARTAG_SI
 fn VARSIZE_ANY_EXHDR(PTR: anytype) @TypeOf(if (VARATT_IS_1B_E(PTR)) VARSIZE_EXTERNAL(PTR) - VARHDRSZ_EXTERNAL() else if (VARATT_IS_1B(PTR)) VARSIZE_1B(PTR) - VARHDRSZ_SHORT() else VARSIZE_4B(PTR) - pg.VARHDRSZ) {
     return if (VARATT_IS_1B_E(PTR)) VARSIZE_EXTERNAL(PTR) - VARHDRSZ_EXTERNAL() else if (VARATT_IS_1B(PTR)) VARSIZE_1B(PTR) - VARHDRSZ_SHORT() else VARSIZE_4B(PTR) - pg.VARHDRSZ;
 }
+
+inline fn VARDATA_ANY(PTR: anytype) @TypeOf(if (VARATT_IS_1B(PTR)) VARDATA_1B(PTR) else VARDATA_4B(PTR)) {
+    return if (VARATT_IS_1B(PTR)) VARDATA_1B(PTR) else VARDATA_4B(PTR);
+}
+inline fn VARDATA_4B(PTR: anytype) @TypeOf(@import("std").zig.c_translation.cast([*c]pg.varattrib_4b, PTR).*.va_4byte.va_data()) {
+    return @import("std").zig.c_translation.cast([*c]pg.varattrib_4b, PTR).*.va_4byte.va_data();
+}
+inline fn VARDATA_1B(PTR: anytype) @TypeOf(@import("std").zig.c_translation.cast([*c]pg.varattrib_1b, PTR).*.va_data()) {
+    return @import("std").zig.c_translation.cast([*c]pg.varattrib_1b, PTR).*.va_data();
+}
+inline fn VARDATA_1B_E(PTR: anytype) @TypeOf(@import("std").zig.c_translation.cast([*c]pg.varattrib_1b_e, PTR).*.va_data()) {
+    return @import("std").zig.c_translation.cast([*c]pg.varattrib_1b_e, PTR).*.va_data();
+}
+
 // End of macros that failed to get translated
 
 pub fn span_text(arg: [*c]pg.text) []u8 {
-    std.debug.print("varsize: {}", .{VARSIZE_ANY_EXHDR(arg)});
-    return arg.*.vl_dat()[0..@intCast(VARSIZE_ANY_EXHDR(arg))];
+    std.debug.print("Spanned text: {s}\n", .{VARDATA_ANY(arg)[0..@intCast(VARSIZE_ANY_EXHDR(arg))]});
+    return VARDATA_ANY(arg)[0..@intCast(VARSIZE_ANY_EXHDR(arg))];
 }

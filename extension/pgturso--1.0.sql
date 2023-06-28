@@ -29,7 +29,7 @@ CREATE OR REPLACE PROCEDURE turso_replicate_mv(mv_name text)
 LANGUAGE PLpgSQL
 AS $$
 BEGIN
-  EXECUTE 'REFRESH MATERIALIZED VIEW ' || mv_name || ';';
+  EXECUTE 'REFRESH MATERIALIZED VIEW ' || mv_name || ';'; -- TODO: in certain cases we can also refresh CONCURRENTLY
   EXECUTE 'CALL turso_replicate_table(' || quote_literal(mv_name) || ');';
 END;
 $$;
@@ -41,6 +41,7 @@ CREATE OR REPLACE FUNCTION turso_schedule_table_replication(table_name text, ref
 LANGUAGE SQL
 AS $$
     CREATE EXTENSION IF NOT EXISTS pg_cron;
+    SELECT turso_migrate_table_schema(table_name);
     SELECT pg_create_logical_replication_slot('pgturso_slot_' || table_name, 'pgturso');
     SELECT cron.schedule(
         'turso-refresh-' || table_name,
@@ -56,10 +57,67 @@ CREATE OR REPLACE FUNCTION turso_schedule_mv_replication(view_name text, refresh
 LANGUAGE SQL
 AS $$
     CREATE EXTENSION IF NOT EXISTS pg_cron;
+    SELECT turso_migrate_mv_schema(view_name);
     SELECT pg_create_logical_replication_slot('pgturso_slot_' || view_name, 'pgturso');
     SELECT cron.schedule(
         'turso-refresh-' || view_name,
         refresh_interval,
         $cron$CALL turso_replicate_mv('$cron$ || view_name || $cron$')$cron$
+    );
+$$;
+
+-- Function for sending queries to Turso
+CREATE FUNCTION turso_send(url text, token text, data text) RETURNS text
+    AS '$libdir/pgturso' LANGUAGE C STRICT;
+
+-- Function that returns a CREATE TABLE statement understandable by Turso,
+-- based on a Postgres table.
+CREATE OR REPLACE FUNCTION turso_generate_create_table_for_table(table_name text) RETURNS text
+LANGUAGE SQL
+AS $$
+    SELECT
+            (SELECT 'CREATE TABLE IF NOT EXISTS ' || table_name || ' (' || string_agg(attname, ', ')
+                FROM pg_attribute
+                WHERE attrelid = table_name::REGCLASS AND attnum > 0)
+        ||  
+        (SELECT ', PRIMARY KEY(' || string_agg(a.attname, ', ') || ') ON CONFLICT REPLACE);'
+            FROM
+                pg_constraint AS c
+                CROSS JOIN LATERAL UNNEST(c.conkey) AS cols(colnum)
+                INNER JOIN pg_attribute AS a ON a.attrelid = c.conrelid AND cols.colnum = a.attnum
+            WHERE
+                c.contype = 'p' 
+                AND c.conrelid = table_name::REGCLASS);
+$$;
+
+-- Function that returns a CREATE TABLE statement understandable by Turso,
+-- based on a Postgres materialized view.
+CREATE OR REPLACE FUNCTION turso_generate_create_table_for_mv(mv_name text) RETURNS text
+LANGUAGE SQL
+AS $$
+    SELECT 'CREATE TABLE IF NOT EXISTS ' || mv_name || ' (' || string_agg(attname, ', ') || ')'
+    FROM pg_attribute
+        WHERE attrelid = mv_name::REGCLASS AND attnum > 0;
+$$;
+
+-- Function that creates the corresponding table in Turso for replication purposes.
+CREATE OR REPLACE FUNCTION turso_migrate_table_schema(table_name text) RETURNS text
+LANGUAGE SQL
+AS $$
+    SELECT turso_send(
+        turso_url(),
+        'Bearer ' || turso_token(),
+        turso_generate_create_table_for_table(table_name)
+    );
+$$;
+
+-- Function that creates the corresponding table in Turso for replication purposes.
+CREATE OR REPLACE FUNCTION turso_migrate_mv_schema(mv_name text) RETURNS text
+LANGUAGE SQL
+AS $$
+    SELECT turso_send(
+        turso_url(),
+        'Bearer ' || turso_token(),
+        turso_generate_create_table_for_mv(mv_name)
     );
 $$;

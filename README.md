@@ -101,7 +101,7 @@ CREATE OR REPLACE FUNCTION turso_url() RETURNS text LANGUAGE SQL AS $$ SELECT 'h
 
 ```sql
 CREATE EXTENSION pgturso;
-SELECT turso_schedule_mv_replication('assorted_collection_of_dirt_cheap_dishes', '5 seconds');
+SELECT turso_schedule_mv_replication('assorted_collection_of_dirt_cheap_dishes', '30 seconds'); -- refreshing materialized views in Postgres is costly, beware!
 ```
 
 Voilà! Your data is now replicated to Turso.

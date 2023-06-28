@@ -12,7 +12,7 @@ const pg = @cImport({
 const print_insert = @import("util.zig").print_insert;
 const print_update = @import("util.zig").print_update;
 const print_delete = @import("util.zig").print_delete;
-const replicate = @import("util.zig").replicate;
+const send = @import("util.zig").send;
 const span_text = @import("util.zig").span_text;
 
 // Magic PostgreSQL symbols to indicate it's a loadable module
@@ -157,8 +157,8 @@ pub fn pgturso_begin_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.Reorder
 
 // We could create the full JSON object here, but it's more efficient to operate on a list of statements,
 // and only wrap them into an object right before sending them to Turso.
-fn init_stmt_list() std.json.Array {
-    return std.json.Array.initCapacity(allocator, 3) catch unreachable;
+fn init_stmt_list() !std.json.Array {
+    return std.json.Array.initCapacity(allocator, 3);
 }
 
 pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, relation: pg.Relation, change: [*c]pg.ReorderBufferChange) callconv(.C) void {
@@ -181,7 +181,7 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
     if (txndata == null) {
         txndata = @as(?*PgTursoTxnData, @ptrCast(@alignCast(pg.MemoryContextAllocZero(ctx.*.context, @sizeOf(PgTursoTxnData)))));
         txn.*.output_plugin_private = @as(?*anyopaque, @ptrCast(txndata));
-        txndata.?.*.stmt_list = init_stmt_list();
+        txndata.?.*.stmt_list = init_stmt_list() catch unreachable;
         txndata.?.*.stmt_list.append(std.json.Value{ .string = "BEGIN" }) catch unreachable;
     }
 
@@ -262,12 +262,14 @@ pub fn pgturso_commit_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.Reorde
     }
 
     txndata.?.*.stmt_list.append(std.json.Value{ .string = "COMMIT" }) catch unreachable;
+    defer txndata.?.*.stmt_list.deinit();
 
     var object_map = std.json.ObjectMap.init(allocator);
+    defer object_map.deinit();
     object_map.put("statements", std.json.Value{ .array = txndata.?.*.stmt_list }) catch unreachable;
     const json_payload = std.json.Value{ .object = object_map };
 
-    replicate(data.*.url, data.*.auth, json_payload) catch |err| {
+    send(data.*.url, data.*.auth, json_payload) catch |err| {
         std.debug.print("Failed to replicate: {}\n", .{err});
     };
 
@@ -292,7 +294,7 @@ pub fn pgturso_truncate(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderB
     if (txndata == null) {
         txndata = @as(?*PgTursoTxnData, @ptrCast(@alignCast(pg.MemoryContextAllocZero(ctx.*.context, @sizeOf(PgTursoTxnData)))));
         txn.*.output_plugin_private = @as(?*anyopaque, @ptrCast(txndata));
-        txndata.?.*.stmt_list = init_stmt_list();
+        txndata.?.*.stmt_list = init_stmt_list() catch unreachable;
         txndata.?.*.stmt_list.append(std.json.Value{ .string = "BEGIN" }) catch unreachable;
     }
 
@@ -393,7 +395,28 @@ pub export fn turso_send(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
     var url: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[0].value);
     var token: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[1].value);
     var data: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[2].value);
-    std.debug.print("turso_send(): {s} {s} {s}\n", .{ span_text(url), span_text(token), span_text(data) });
+
+    var object_map = std.json.ObjectMap.init(allocator);
+    var stmt_list = std.json.Array.initCapacity(allocator, 1) catch |err| {
+        std.debug.print("Failed to replicate: {}\n", .{err});
+        return 0;
+    };
+    //defer stmt_list.deinit();
+    stmt_list.append(std.json.Value{ .string = span_text(data) }) catch |err| {
+        std.debug.print("Failed to replicate: {}\n", .{err});
+        return 0;
+    };
+    object_map.put("statements", std.json.Value{ .array = stmt_list }) catch |err| {
+        std.debug.print("Failed to replicate: {}\n", .{err});
+        return 0;
+    };
+    //defer object_map.deinit();
+    const json_payload = std.json.Value{ .object = object_map };
+
+    send(span_text(url), span_text(token), json_payload) catch |err| {
+        std.debug.print("Failed to replicate: {}\n", .{err});
+    };
+
     return pg.PointerGetDatum(data); // return something useful here
 }
 pub export fn pg_finfo_turso_send() [*c]const pg.Pg_finfo_record {
