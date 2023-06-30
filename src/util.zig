@@ -102,10 +102,8 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
         origval = pg.heap_getattr(tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &isnull);
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
         if (isnull) {
+            // nulls are not interesting for inserts
             continue;
-            // NOTICE: nulls are not interesting for inserts
-            //_ = try std.fmt.bufPrint(stmt_buf[offset..], "null", .{});
-            //offset += 4;
         }
         if (printed > 0) {
             _ = try std.fmt.bufPrint(stmt_buf[offset..], ",", .{});
@@ -313,10 +311,14 @@ pub fn send(url: []u8, auth: []u8, json_payload: std.json.Value) !void {
     try req.wait();
 
     std.debug.print("Response status: {}\n", .{req.response.status});
+    // We're currently reading the response for debugging purposes only
+    const body = try req.reader().readAllAlloc(allocator, 65536);
+    defer allocator.free(body);
+    std.debug.print("Response body: {s}\n", .{body});
     try std.testing.expect(req.response.status == .ok); // FIXME: remove
 }
 
-// Macros that failed to get translated
+// Macros that failed to get translated properly by translate-c, needed for varint deserialization
 inline fn VARTAG_1B_E(PTR: anytype) @TypeOf(@import("std").zig.c_translation.cast([*c]pg.varattrib_1b_e, PTR).*.va_tag) {
     return @import("std").zig.c_translation.cast([*c]pg.varattrib_1b_e, PTR).*.va_tag;
 }
@@ -363,9 +365,9 @@ inline fn VARDATA_1B(PTR: anytype) @TypeOf(@import("std").zig.c_translation.cast
 inline fn VARDATA_1B_E(PTR: anytype) @TypeOf(@import("std").zig.c_translation.cast([*c]pg.varattrib_1b_e, PTR).*.va_data()) {
     return @import("std").zig.c_translation.cast([*c]pg.varattrib_1b_e, PTR).*.va_data();
 }
-
 // End of macros that failed to get translated
 
+// Helper function that deserializes a Postgres' text value into a Zig slice
 pub fn span_text(arg: [*c]pg.text) []u8 {
     std.debug.print("Spanned text: {s}\n", .{VARDATA_ANY(arg)[0..@intCast(VARSIZE_ANY_EXHDR(arg))]});
     return VARDATA_ANY(arg)[0..@intCast(VARSIZE_ANY_EXHDR(arg))];

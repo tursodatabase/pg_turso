@@ -79,7 +79,8 @@ const PgTursoData = struct {
     context: pg.MemoryContext,
     url: []u8,
     auth: []u8,
-    table_name: []u8, // TODO: we can go wild with configuration later, make it a list of tables, etc.
+    table_name: []u8, // TODO: we should accept a list of tables
+    // TODO: we should also implement optional filtering of columns and values
 };
 
 // Context for a single transaction
@@ -96,11 +97,8 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
     var ctx = arg_ctx;
     var opt = arg_opt;
     _ = arg_is_init;
-    // NOTICE: temporarily unused, but that's the place to insert the Turso URL and auth
-    var data: *PgTursoData = undefined;
-    data = @as(*PgTursoData, @ptrCast(@alignCast(pg.palloc0(@sizeOf(PgTursoData)))));
+    var data: *PgTursoData = @ptrCast(@alignCast(pg.palloc0(@sizeOf(PgTursoData))));
     data.*.context = pg.AllocSetContextCreateInternal(ctx.*.context, "text conversion context", 0, 8 * 1024, 8 * 1024 * 1024);
-    // TODO: verify what all this stuff actually means
     ctx.*.output_plugin_private = @as(?*anyopaque, @ptrCast(data));
     opt.*.output_type = @bitCast(pg.OUTPUT_PLUGIN_TEXTUAL_OUTPUT);
     opt.*.receive_rewrites = true;
@@ -110,6 +108,7 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
         .l = ctx.*.output_plugin_options,
         .i = 0,
     };
+    // NOTICE: the idiom below comes straight from translate-c:
     while ((if ((option__state.l != null) and (option__state.i < option__state.l.*.length)) blk: {
         option = &(blk_1: {
             const tmp = option__state.i;
@@ -121,7 +120,6 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
         break :blk @as(c_int, 0);
     }) != 0) : (option__state.i += 1) {
         var elem: [*c]pg.DefElem = @as([*c]pg.DefElem, @ptrCast(@alignCast(option.*.ptr_value)));
-        // FIXME: accept URLs and tokens longer than 256B
         if (std.mem.eql(u8, elem.*.defname[0..3], "url")) {
             const url_string = std.mem.span(@as([*c]pg.String, @ptrCast(@alignCast(elem.*.arg))).*.sval);
             data.*.url = std.fmt.allocPrint(allocator, "{s}", .{url_string}) catch unreachable;
@@ -137,7 +135,7 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
         std.debug.print("Replicated table name: {s}\n", .{data.*.table_name});
     }
 
-    // TODO: what's streaming?
+    // TODO: enable streaming large transactions once we implement b.*.stream_* callbacks
     ctx.*.streaming = false;
 }
 
@@ -185,7 +183,8 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
         txndata.?.*.stmt_list.append(std.json.Value{ .string = "BEGIN" }) catch unreachable;
     }
 
-    var stmt_buf: [65536]u8 = undefined; // TODO: is this static limit good enough?
+    // TODO: verify if this static limit is good enough; it's a good use case for a small vector
+    var stmt_buf: [65536]u8 = undefined;
 
     switch (change.*.action) {
         pg.REORDER_BUFFER_CHANGE_INSERT => {
@@ -196,7 +195,7 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             } else {
                 offset += print_insert(stmt_buf[offset..], tupdesc, &change.*.data.tp.newtuple.*.tuple) catch unreachable;
                 if (offset == 0) {
-                    std.debug.print("NO INSERT INFO!!!", .{});
+                    std.debug.print("No insert info found!", .{});
                 } else {
                     std.debug.print("Statement: {s}\n", .{stmt_buf[0..offset]});
                     const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable;
@@ -218,7 +217,7 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
                 defer pg.bms_free(key_attrs);
                 offset += print_update(stmt_buf[offset..], tupdesc, key_attrs, &change.*.data.tp.newtuple.*.tuple, oldtuple) catch unreachable;
                 if (offset == 0) {
-                    std.debug.print("NO UPDATE INFO!!!", .{});
+                    std.debug.print("No update info found!", .{});
                 } else {
                     std.debug.print("Statement: {s}\n", .{stmt_buf[0..offset]});
                     const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable;
@@ -234,7 +233,7 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
             } else {
                 offset += print_delete(stmt_buf[offset..], tupdesc, &change.*.data.tp.oldtuple.*.tuple) catch unreachable;
                 if (offset == 0) {
-                    std.debug.print("NO DELETE INFO!!!", .{});
+                    std.debug.print("No delete info found!", .{});
                 } else {
                     std.debug.print("Statement: {s}\n", .{stmt_buf[0..offset]});
                     const stmt = std.fmt.allocPrint(allocator, "{s}", .{stmt_buf[0..offset]}) catch unreachable;
@@ -300,7 +299,7 @@ pub fn pgturso_truncate(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderB
 
     var i: i32 = 0;
     while (i < nrelations) : (i += 1) {
-        // TODO: rephrase this translate-c abomination and deduplicate getting qualified id
+        // NOTICE: this idiom is generated by translate-c
         const table = @as([*c]u8, @ptrCast(@alignCast(&(blk: {
             const tmp = i;
             if (tmp >= 0) break :blk relations + @as(usize, @intCast(tmp)) else break :blk relations - ~@as(usize, @intCast(@as(isize, @intCast(tmp)) +% -1));
@@ -319,77 +318,13 @@ pub fn pgturso_filter(arg_ctx: [*c]pg.LogicalDecodingContext, arg_origin_id: pg.
     return false;
 }
 
-// NOTICE: optional, not used in pgturso at the moment
-
-// pub fn pgturso_message(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_lsn: pg.XLogRecPtr, arg_transactional: bool, arg_prefix: [*c]const u8, arg_sz: pg.Size, arg_message: [*c]const u8) callconv(.C) void {
-//     std.debug.print("pgturso_message {*} {*} {} {} {*} {} {*}\n", .{ arg_ctx, arg_txn, arg_lsn, arg_transactional, arg_prefix, arg_sz, arg_message });
-// }
-//
-// pub fn pgturso_filter_prepare(arg_ctx: [*c]pg.LogicalDecodingContext, arg_xid: pg.TransactionId, arg_gid: [*c]const u8) callconv(.C) bool {
-//     std.debug.print("pgturso_filter_prepare {*} {} {*}\n", .{ arg_ctx, arg_xid, arg_gid });
-//     return true;
-// }
-//
-// pub fn pgturso_begin_prepare_txn(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN) callconv(.C) void {
-//     std.debug.print("pgturso_begin_prepare_txn {*} {*}\n", .{ arg_ctx, arg_txn });
-// }
-//
-// pub fn pgturso_prepare_txn(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_prepare_lsn: pg.XLogRecPtr) callconv(.C) void {
-//     std.debug.print("pgturso_prepare_txn {*} {*} {}\n", .{ arg_ctx, arg_txn, arg_prepare_lsn });
-// }
-//
-// pub fn pgturso_commit_prepared_txn(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_commit_lsn: pg.XLogRecPtr) callconv(.C) void {
-//     std.debug.print("pgturso_commit_prepared_txn {*} {*} {}\n", .{ arg_ctx, arg_txn, arg_commit_lsn });
-// }
-//
-// pub fn pgturso_rollback_prepared_txn(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_prepare_end_lsn: pg.XLogRecPtr, arg_prepare_time: pg.TimestampTz) callconv(.C) void {
-//     std.debug.print("pgturso_rollback_prepared_txn {*} {*} {} {}\n", .{ arg_ctx, arg_txn, arg_prepare_end_lsn, arg_prepare_time });
-// }
-//
-// pub fn pgturso_stream_start(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN) callconv(.C) void {
-//     std.debug.print("pgturso_stream_start {*} {*}\n", .{ arg_ctx, arg_txn });
-// }
-//
-// pub fn pg_output_stream_start(arg_ctx: [*c]pg.LogicalDecodingContext, arg_data: [*c]pg.TestDecodingData, arg_txn: [*c]pg.ReorderBufferTXN, arg_last_write: bool) callconv(.C) void {
-//     std.debug.print("pg_output_stream_start {*} {*}\n", .{ arg_ctx, arg_data, arg_txn, arg_last_write });
-// }
-//
-// pub fn pgturso_stream_stop(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN) callconv(.C) void {
-//     std.debug.print("pgturso_stream_stop {*} {*}\n", .{ arg_ctx, arg_txn });
-// }
-//
-// pub fn pgturso_stream_abort(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_abort_lsn: pg.XLogRecPtr) callconv(.C) void {
-//     std.debug.print("pgturso_stream_abort {*} {*} {}\n", .{ arg_ctx, arg_txn, arg_abort_lsn });
-// }
-//
-// pub fn pgturso_stream_prepare(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_prepare_lsn: pg.XLogRecPtr) callconv(.C) void {
-//     std.debug.print("pgturso_stream_prepare {*} {*} {}\n", .{ arg_ctx, arg_txn, arg_prepare_lsn });
-// }
-//
-// pub fn pgturso_stream_commit(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_commit_lsn: pg.XLogRecPtr) callconv(.C) void {
-//     std.debug.print("pgturso_stream_commit {*} {*} {}\n", .{ arg_ctx, arg_txn, arg_commit_lsn });
-// }
-//
-// pub fn pgturso_stream_change(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_relation: pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
-//     std.debug.print("pgturso_stream_change {*} {*} {*} {*}\n", .{ arg_ctx, arg_txn, arg_relation, arg_change });
-// }
-//
-// pub fn pgturso_stream_message(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_lsn: pg.XLogRecPtr, arg_transactional: bool, arg_prefix: [*c]const u8, arg_sz: pg.Size, arg_message: [*c]const u8) callconv(.C) void {
-//     std.debug.print("pgturso_stream_message {*} {*} {} {} {*} {} {*}\n", .{ arg_ctx, arg_txn, arg_lsn, arg_transactional, arg_prefix, arg_sz, arg_message });
-// }
-//
-// pub fn pgturso_stream_truncate(arg_ctx: [*c]pg.LogicalDecodingContext, arg_txn: [*c]pg.ReorderBufferTXN, arg_nrelations: c_int, arg_relations: [*c]pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
-//     std.debug.print("pgturso_stream_truncate {*} {*} {} {*} {*}\n", .{ arg_ctx, arg_txn, arg_nrelations, arg_relations, arg_change });
-// }
-
 //
 // User-defined functions
 //
 
-// TODO: make this function accept a schema, translate it to something that Turso understands,
-// and send it over the HTTP API.
+// Sends a JSON payload to Turso.
 // Example how to instantiate the function in Postgres:
-//     CREATE FUNCTION turso_send(url text, token text, data text) RETURNS text AS '/usr/lib/postgresql/pgturso' LANGUAGE C STRICT;
+// CREATE FUNCTION turso_send(url text, token text, data text) RETURNS text AS '$libdir/pgturso' LANGUAGE C STRICT;
 pub export fn turso_send(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
     var fcinfo = arg_fcinfo;
     var url: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[0].value);
@@ -401,7 +336,7 @@ pub export fn turso_send(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
         std.debug.print("Failed to replicate: {}\n", .{err});
         return 0;
     };
-    //defer stmt_list.deinit();
+    defer stmt_list.deinit();
     stmt_list.append(std.json.Value{ .string = span_text(data) }) catch |err| {
         std.debug.print("Failed to replicate: {}\n", .{err});
         return 0;
@@ -410,7 +345,7 @@ pub export fn turso_send(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
         std.debug.print("Failed to replicate: {}\n", .{err});
         return 0;
     };
-    //defer object_map.deinit();
+    defer object_map.deinit();
     const json_payload = std.json.Value{ .object = object_map };
 
     send(span_text(url), span_text(token), json_payload) catch |err| {
