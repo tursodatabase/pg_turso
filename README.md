@@ -6,7 +6,6 @@ Postgres [output plugin](https://www.postgresql.org/docs/current/logicaldecoding
 
 Replicating tables and views is more or less supported, but:
 1. Only basic types - integers and text - were tested. Postgres has way more types, and they may prove problematic to replicate. We can probably just cast them to generic binary blobs and replicate them in that form.
-2. Schema migration is still manual - the table needs to be created in Turso. That should be automated.
 
 ## Installation
 
@@ -35,14 +34,13 @@ CREATE MATERIALIZED VIEW assorted_collection_of_dirt_cheap_dishes
   AS SELECT dish_id, name FROM menu WHERE price <= 2.99;
 ```
 
-The Turso table corresponding to our materialized view can be created with the help of `turso db shell` as follows:
+The Turso table corresponding to our materialized view will be automatically created by the plugin, and is going to look more or less as follows:
 ```sql
 CREATE TABLE assorted_collection_of_dirt_cheap_dishes(
    dish_id int PRIMARY KEY ON CONFLICT REPLACE,
    name
 );
 ```
-The process of creating the corresponding replication table in Turso will be automated in the future, but for now the table needs to be created manually.
 
 The way replication plugins work is as follows.
 
@@ -105,3 +103,12 @@ SELECT turso_schedule_mv_replication('assorted_collection_of_dirt_cheap_dishes',
 ```
 
 Voilà! Your data is now replicated to Turso.
+
+## Replicating tables
+
+On top of replicating parts of your table to Turso as Postgres materialized views, you can also use `pgturso` to replicate tables. In the future, we're also considering adding custom filters to table replication. In order to replicate a table, simply call:
+```sql
+CREATE EXTENSION pgturso;
+SELECT turso_schedule_table_replication('assorted_collection_of_dirt_cheap_dishes', '5 seconds');
+```
+Table replication is also more efficient than materialized view replication, because it does not involve refreshing the materialized view. Enjoy!
