@@ -75,19 +75,9 @@ CREATE FUNCTION turso_send(url text, token text, data text) RETURNS text
 CREATE OR REPLACE FUNCTION turso_generate_create_table_for_table(table_name text) RETURNS text
 LANGUAGE SQL
 AS $$
-    SELECT
-            (SELECT 'CREATE TABLE IF NOT EXISTS ' || table_name || ' (' || string_agg(attname, ', ')
-                FROM pg_attribute
-                WHERE attrelid = table_name::REGCLASS AND attnum > 0)
-        ||  
-        (SELECT ', PRIMARY KEY(' || string_agg(a.attname, ', ') || ') ON CONFLICT REPLACE);'
-            FROM
-                pg_constraint AS c
-                CROSS JOIN LATERAL UNNEST(c.conkey) AS cols(colnum)
-                INNER JOIN pg_attribute AS a ON a.attrelid = c.conrelid AND cols.colnum = a.attnum
-            WHERE
-                c.contype = 'p' 
-                AND c.conrelid = table_name::REGCLASS);
+    SELECT 'CREATE TABLE IF NOT EXISTS ' || table_name || ' (' || string_agg(attname, ', ') || ')'
+    FROM pg_attribute
+        WHERE attrelid = mv_name::REGCLASS AND attnum > 0;
 $$;
 
 -- Function that returns a CREATE TABLE statement understandable by Turso,
