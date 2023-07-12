@@ -77,7 +77,7 @@ LANGUAGE SQL
 AS $$
     SELECT 'CREATE TABLE IF NOT EXISTS ' || table_name || ' (' || string_agg(attname, ', ') || ')'
     FROM pg_attribute
-        WHERE attrelid = mv_name::REGCLASS AND attnum > 0;
+        WHERE attrelid = table_name::REGCLASS AND attnum > 0;
 $$;
 
 -- Function that returns a CREATE TABLE statement understandable by Turso,
