@@ -6,7 +6,7 @@
 -- prior to using this extension.
 
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
-\echo Use "CREATE EXTENSION pgturso" to load this file. \quit
+\echo Use "CREATE EXTENSION pg_turso" to load this file. \quit
 
 -- Procedure that replicates a table.
 -- Calls turso_url() and turso_token() functions to obtain the URL and token.
@@ -15,7 +15,7 @@ CREATE OR REPLACE PROCEDURE turso_replicate_table(table_name text)
 LANGUAGE SQL
 AS $$
         SELECT * FROM pg_logical_slot_get_changes(
-            'pgturso_slot_' || table_name, NULL, NULL,
+            'pg_turso_slot_' || table_name, NULL, NULL,
             'url', (SELECT turso_url()),
             'auth', (SELECT turso_token()),
             'table_name', table_name
@@ -42,7 +42,7 @@ LANGUAGE SQL
 AS $$
     CREATE EXTENSION IF NOT EXISTS pg_cron;
     SELECT turso_migrate_table_schema(table_name);
-    SELECT pg_create_logical_replication_slot('pgturso_slot_' || table_name, 'pgturso');
+    SELECT pg_create_logical_replication_slot('pg_turso_slot_' || table_name, 'pg_turso');
     SELECT cron.schedule(
         'turso-refresh-' || table_name,
         refresh_interval,
@@ -58,7 +58,7 @@ LANGUAGE SQL
 AS $$
     CREATE EXTENSION IF NOT EXISTS pg_cron;
     SELECT turso_migrate_mv_schema(view_name);
-    SELECT pg_create_logical_replication_slot('pgturso_slot_' || view_name, 'pgturso');
+    SELECT pg_create_logical_replication_slot('pg_turso_slot_' || view_name, 'pg_turso');
     SELECT cron.schedule(
         'turso-refresh-' || view_name,
         refresh_interval,
@@ -68,7 +68,7 @@ $$;
 
 -- Function for sending queries to Turso
 CREATE FUNCTION turso_send(url text, token text, data text) RETURNS text
-    AS '$libdir/pgturso' LANGUAGE C STRICT;
+    AS '$libdir/pg_turso' LANGUAGE C STRICT;
 
 -- Function that returns a CREATE TABLE statement understandable by Turso,
 -- based on a Postgres table.

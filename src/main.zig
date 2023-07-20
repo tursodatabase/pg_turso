@@ -47,31 +47,31 @@ pub export fn Pg_magic_func() [*c]const Pg_magic_struct {
 // end of magic PostgreSQL symbols
 
 pub export fn _PG_output_plugin_init(arg_cb: [*c]pg.OutputPluginCallbacks) void {
-    std.debug.print("Welcome to pgturso\n", .{});
+    std.debug.print("Welcome to pg_turso\n", .{});
     var cb = arg_cb;
-    cb.*.startup_cb = &pgturso_startup;
-    cb.*.shutdown_cb = &pgturso_shutdown;
-    cb.*.begin_cb = &pgturso_begin_txn;
-    cb.*.change_cb = &pgturso_change;
-    cb.*.commit_cb = &pgturso_commit_txn;
-    cb.*.truncate_cb = &pgturso_truncate;
-    cb.*.filter_by_origin_cb = &pgturso_filter;
+    cb.*.startup_cb = &pg_turso_startup;
+    cb.*.shutdown_cb = &pg_turso_shutdown;
+    cb.*.begin_cb = &pg_turso_begin_txn;
+    cb.*.change_cb = &pg_turso_change;
+    cb.*.commit_cb = &pg_turso_commit_txn;
+    cb.*.truncate_cb = &pg_turso_truncate;
+    cb.*.filter_by_origin_cb = &pg_turso_filter;
 
-    // NOTICE: optional, not used in pgturso at the moment
-    //    cb.*.message_cb = &pgturso_message;
-    //    cb.*.filter_prepare_cb = &pgturso_filter_prepare;
-    //    cb.*.begin_prepare_cb = &pgturso_begin_prepare_txn;
-    //    cb.*.prepare_cb = &pgturso_prepare_txn;
-    //    cb.*.commit_prepared_cb = &pgturso_commit_prepared_txn;
-    //    cb.*.rollback_prepared_cb = &pgturso_rollback_prepared_txn;
-    //    cb.*.stream_start_cb = &pgturso_stream_start;
-    //    cb.*.stream_stop_cb = &pgturso_stream_stop;
-    //    cb.*.stream_abort_cb = &pgturso_stream_abort;
-    //    cb.*.stream_prepare_cb = &pgturso_stream_prepare;
-    //    cb.*.stream_commit_cb = &pgturso_stream_commit;
-    //    cb.*.stream_change_cb = &pgturso_stream_change;
-    //    cb.*.stream_message_cb = &pgturso_stream_message;
-    //    cb.*.stream_truncate_cb = &pgturso_stream_truncate;
+    // NOTICE: optional, not used in pg_turso at the moment
+    //    cb.*.message_cb = &pg_turso_message;
+    //    cb.*.filter_prepare_cb = &pg_turso_filter_prepare;
+    //    cb.*.begin_prepare_cb = &pg_turso_begin_prepare_txn;
+    //    cb.*.prepare_cb = &pg_turso_prepare_txn;
+    //    cb.*.commit_prepared_cb = &pg_turso_commit_prepared_txn;
+    //    cb.*.rollback_prepared_cb = &pg_turso_rollback_prepared_txn;
+    //    cb.*.stream_start_cb = &pg_turso_stream_start;
+    //    cb.*.stream_stop_cb = &pg_turso_stream_stop;
+    //    cb.*.stream_abort_cb = &pg_turso_stream_abort;
+    //    cb.*.stream_prepare_cb = &pg_turso_stream_prepare;
+    //    cb.*.stream_commit_cb = &pg_turso_stream_commit;
+    //    cb.*.stream_change_cb = &pg_turso_stream_change;
+    //    cb.*.stream_message_cb = &pg_turso_stream_message;
+    //    cb.*.stream_truncate_cb = &pg_turso_stream_truncate;
 }
 
 // Context for the whole plugin
@@ -91,8 +91,8 @@ const PgTursoTxnData = struct {
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
-pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.OutputPluginOptions, arg_is_init: bool) callconv(.C) void {
-    std.debug.print("pgturso_startup\n", .{});
+pub fn pg_turso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.OutputPluginOptions, arg_is_init: bool) callconv(.C) void {
+    std.debug.print("pg_turso_startup\n", .{});
 
     var ctx = arg_ctx;
     var opt = arg_opt;
@@ -130,7 +130,7 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
             const table_name_string = std.mem.span(@as([*c]pg.String, @ptrCast(@alignCast(elem.*.arg))).*.sval);
             data.*.table_name = std.fmt.allocPrint(allocator, "{s}", .{table_name_string}) catch unreachable;
         } else {
-            std.debug.print("pgturso_startup: unknown option: {s}\n", .{elem.*.defname});
+            std.debug.print("pg_turso_startup: unknown option: {s}\n", .{elem.*.defname});
         }
         std.debug.print("Replicated table name: {s}\n", .{data.*.table_name});
     }
@@ -139,7 +139,7 @@ pub fn pgturso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.O
     ctx.*.streaming = false;
 }
 
-pub fn pgturso_shutdown(arg_ctx: [*c]pg.LogicalDecodingContext) callconv(.C) void {
+pub fn pg_turso_shutdown(arg_ctx: [*c]pg.LogicalDecodingContext) callconv(.C) void {
     var data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(arg_ctx.*.output_plugin_private)));
     allocator.free(data.*.url);
     allocator.free(data.*.auth);
@@ -147,7 +147,7 @@ pub fn pgturso_shutdown(arg_ctx: [*c]pg.LogicalDecodingContext) callconv(.C) voi
     pg.MemoryContextDelete(data.*.context);
 }
 
-pub fn pgturso_begin_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN) callconv(.C) void {
+pub fn pg_turso_begin_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN) callconv(.C) void {
     // NOTICE: PgTursoTxnData is lazily allocated on first statement, to avoid allocations on empty blocks
     _ = ctx;
     _ = txn;
@@ -159,7 +159,7 @@ fn init_stmt_list() !std.json.Array {
     return std.json.Array.initCapacity(allocator, 3);
 }
 
-pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, relation: pg.Relation, change: [*c]pg.ReorderBufferChange) callconv(.C) void {
+pub fn pg_turso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, relation: pg.Relation, change: [*c]pg.ReorderBufferChange) callconv(.C) void {
     var data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
     var txndata: ?*PgTursoTxnData = @as(?*PgTursoTxnData, @ptrCast(@alignCast(txn.*.output_plugin_private)));
     var class_form: pg.Form_pg_class = relation.*.rd_rel;
@@ -250,13 +250,13 @@ pub fn pgturso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBuf
     pg.MemoryContextReset(data.*.context);
 }
 
-pub fn pgturso_commit_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_commit_lsn: pg.XLogRecPtr) callconv(.C) void {
+pub fn pg_turso_commit_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_commit_lsn: pg.XLogRecPtr) callconv(.C) void {
     _ = arg_commit_lsn;
     var data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
 
     var txndata: ?*PgTursoTxnData = @as(?*PgTursoTxnData, @ptrCast(@alignCast(txn.*.output_plugin_private)));
     if (txndata == null) {
-        std.debug.print("pgturso_commit_txn: no txndata\n", .{});
+        std.debug.print("pg_turso_commit_txn: no txndata\n", .{});
         return;
     }
 
@@ -281,7 +281,7 @@ pub fn pgturso_commit_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.Reorde
     txn.*.output_plugin_private = null;
 }
 
-pub fn pgturso_truncate(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_nrelations: c_int, arg_relations: [*c]pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
+pub fn pg_turso_truncate(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_nrelations: c_int, arg_relations: [*c]pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
     var nrelations = arg_nrelations;
     var relations = arg_relations;
     _ = arg_change;
@@ -312,7 +312,7 @@ pub fn pgturso_truncate(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderB
     pg.MemoryContextReset(data.*.context);
 }
 
-pub fn pgturso_filter(arg_ctx: [*c]pg.LogicalDecodingContext, arg_origin_id: pg.RepOriginId) callconv(.C) bool {
+pub fn pg_turso_filter(arg_ctx: [*c]pg.LogicalDecodingContext, arg_origin_id: pg.RepOriginId) callconv(.C) bool {
     _ = arg_ctx;
     _ = arg_origin_id;
     return false;
@@ -324,7 +324,7 @@ pub fn pgturso_filter(arg_ctx: [*c]pg.LogicalDecodingContext, arg_origin_id: pg.
 
 // Sends a JSON payload to Turso.
 // Example how to instantiate the function in Postgres:
-// CREATE FUNCTION turso_send(url text, token text, data text) RETURNS text AS '$libdir/pgturso' LANGUAGE C STRICT;
+// CREATE FUNCTION turso_send(url text, token text, data text) RETURNS text AS '$libdir/pg_turso' LANGUAGE C STRICT;
 pub export fn turso_send(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
     var fcinfo = arg_fcinfo;
     var url: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[0].value);
