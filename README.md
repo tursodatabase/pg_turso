@@ -1,4 +1,4 @@
-# pgturso
+# pg_turso
 
 Postgres [output plugin](https://www.postgresql.org/docs/current/logicaldecoding-output-plugin.html) for replicating data to Turso.
 
@@ -15,8 +15,8 @@ Please note that you need to download zig development version 2023-06-20 or high
 
 ```sh
 cd /tmp
-git clone https://github.com/chiselstrike/pgturso.git
-cd pgturso
+git clone https://github.com/turso-extended/pg_turso.git
+cd pg_turso
 export ZIG=<path where zig executable is>
 make
 make install # may need sudo
@@ -61,9 +61,9 @@ SHOW wal_level;
 Then, you need to create a "logical replication slot".
 You can do that by calling a builtin function and passing two parameters to it - the first is the name of your slot,
 and you can pick whatever name you like. The second is the plugin used, and it needs to match the shared library name
-you compiled above, so `pgturso`.
+you compiled above, so `pg_turso`.
 ```sql
-SELECT pg_create_logical_replication_slot('pgturso_slot', 'pgturso');
+SELECT pg_create_logical_replication_slot('pg_turso_slot', 'pg_turso');
 ```
 
 Then, you can fill the table with some data:
@@ -74,17 +74,17 @@ INSERT INTO menu VALUES (3, 'wasabi', 1.99);
 ```
 
 No replication has happened yet. In Postgres, replication is triggered by calling a function. This function takes the replication slot name and optional parameters.
-PgTurso requires two parameters - the `url` and the `token`, to be able to communicate with a Turso instance, e.g.
+pg_turso requires two parameters - the `url` and the `token`, to be able to communicate with a Turso instance, e.g.
 ```sql
-SELECT * FROM pg_logical_slot_get_changes('pgturso_slot', NULL, NULL, 'url', 'https://your-unique-link.turso.io/', 'auth', 's3cr3t-p4s5');
+SELECT * FROM pg_logical_slot_get_changes('pg_turso_slot', NULL, NULL, 'url', 'https://your-unique-link.turso.io/', 'auth', 's3cr3t-p4s5');
 ```
 Note that this is a regular `SELECT` statement, so you're free to fetch the secret token value from another table, if it should remain secret.
 
 The call triggers parsing WAL and processing all the logical changes. These changes are sent to Turso.
 
-## How to use the pgturso extension with helper functions
+## How to use the pg_turso extension with helper functions
 
-Instead of replicating manually, you can use our `pgturso` extension. It's based on [pg_cron](https://github.com/citusdata/pg_cron) and allows the replication to be automated.
+Instead of replicating manually, you can use our `pg_turso` extension. It's based on [pg_cron](https://github.com/citusdata/pg_cron) and allows the replication to be automated.
 
 1. Set up Turso authentication - helper functions that return the database URL and token
 ```sql
@@ -98,7 +98,7 @@ CREATE OR REPLACE FUNCTION turso_url() RETURNS text LANGUAGE SQL AS $$ SELECT 'h
 2. Load the extension and schedule replication. The interval accepts `pg_cron` syntax.
 
 ```sql
-CREATE EXTENSION pgturso;
+CREATE EXTENSION pg_turso;
 SELECT turso_schedule_mv_replication('assorted_collection_of_dirt_cheap_dishes', '30 seconds'); -- refreshing materialized views in Postgres is costly, beware!
 ```
 
@@ -106,9 +106,9 @@ Voilà! Your data is now replicated to Turso.
 
 ## Replicating tables
 
-On top of replicating parts of your table to Turso as Postgres materialized views, you can also use `pgturso` to replicate tables. In the future, we're also considering adding custom filters to table replication. In order to replicate a table, simply call:
+On top of replicating parts of your table to Turso as Postgres materialized views, you can also use `pg_turso` to replicate tables. In the future, we're also considering adding custom filters to table replication. In order to replicate a table, simply call:
 ```sql
-CREATE EXTENSION pgturso;
+CREATE EXTENSION pg_turso;
 SELECT turso_schedule_table_replication('assorted_collection_of_dirt_cheap_dishes', '5 seconds');
 ```
 Table replication is also more efficient than materialized view replication, because it does not involve refreshing the materialized view. Enjoy!
