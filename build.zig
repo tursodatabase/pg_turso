@@ -19,8 +19,8 @@ pub fn build(b: *std.build.Builder) void {
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
-        .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0},
-    }); 
+        .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
+    });
 
     lib.addIncludePath("postgres/src/include");
     lib.linkLibC();
@@ -35,7 +35,7 @@ pub fn build(b: *std.build.Builder) void {
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
-    }); 
+    });
 
     const run_main_tests = b.addRunArtifact(main_tests);
 
