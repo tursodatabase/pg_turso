@@ -34,7 +34,7 @@ pub export fn Pg_magic_func() [*c]const Pg_magic_struct {
     const Pg_magic_data = struct {
         const static: Pg_magic_struct = Pg_magic_struct{
             .len = @bitCast(@as(c_uint, @truncate(@sizeOf(Pg_magic_struct)))),
-            .version = @divTrunc(@as(c_int, 150000), @as(c_int, 100)),
+            .version = @divTrunc(@as(c_int, 140000), @as(c_int, 100)),
             .funcmaxargs = @as(c_int, 100),
             .indexmaxkeys = @as(c_int, 32),
             .namedatalen = @as(c_int, 64),
