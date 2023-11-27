@@ -22,7 +22,7 @@ pub fn build(b: *std.build.Builder) void {
         .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0},
     }); 
 
-    lib.addIncludePath("postgres/src/include");
+    lib.addIncludePath(.{ .cwd_relative = "postgres/src/include" });
     lib.linkLibC();
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when

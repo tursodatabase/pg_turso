@@ -305,7 +305,7 @@ pub fn send(url: []u8, auth: []u8, json_payload: std.json.Value) !void {
     defer req.deinit();
     try req.start();
 
-    _ = try json_payload.jsonStringify(.{}, req.writer());
+    try std.json.stringify(json_payload, .{}, req.writer());
 
     try req.finish();
     try req.wait();
