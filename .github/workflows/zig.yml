@@ -13,6 +13,8 @@ jobs:
         with:
           submodules: recursive
       - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.11.0
       - run: make
   lint:
     runs-on: ubuntu-latest
