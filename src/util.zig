@@ -9,8 +9,8 @@ const pg = @cImport({
 
 // FIXME: clean up generated code
 fn print_literal(stmt_buf: []u8, arg_typid: pg.Oid, arg_outputstr: [*c]u8) usize {
-    var typid = arg_typid;
-    var outputstr = arg_outputstr;
+    const typid = arg_typid;
+    const outputstr = arg_outputstr;
     var valptr: [*c]const u8 = undefined;
     var offset: usize = 0;
     switch (typid) {
@@ -43,7 +43,7 @@ fn print_literal(stmt_buf: []u8, arg_typid: pg.Oid, arg_outputstr: [*c]u8) usize
             {
                 valptr = outputstr;
                 while (valptr.* != 0) : (valptr += 1) {
-                    var ch: u8 = valptr.*;
+                    const ch: u8 = valptr.*;
                     if ((@as(c_int, @bitCast(@as(c_uint, ch))) == @as(c_int, '\'')) or ((@as(c_int, @bitCast(@as(c_uint, ch))) == @as(c_int, '\\')) and (@as(c_int, 0) != 0))) {
                         _ = std.fmt.bufPrint(stmt_buf[offset..], "{}", .{ch}) catch unreachable;
                         offset += 1;
@@ -60,15 +60,15 @@ fn print_literal(stmt_buf: []u8, arg_typid: pg.Oid, arg_outputstr: [*c]u8) usize
 }
 
 pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.HeapTuple) !usize {
-    var tupdesc = arg_tupdesc;
-    var tuple = arg_tuple;
+    const tupdesc = arg_tupdesc;
+    const tuple = arg_tuple;
     var natt: usize = 0;
     var printed: usize = 0;
     _ = try std.fmt.bufPrint(stmt_buf, "(", .{});
 
     var offset: usize = 1;
     while (natt < tupdesc.*.natts) : (natt += 1) {
-        var attr = &tupdesc.*.attrs()[natt];
+        const attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
         if (@as(c_int, @bitCast(@as(c_int, attr.*.attnum))) < @as(c_int, 0)) continue;
         var isnull: bool = undefined;
@@ -95,10 +95,10 @@ pub fn print_insert(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
         var typisvarlena: bool = undefined;
         var origval: pg.Datum = undefined;
         var isnull: bool = undefined;
-        var attr = &tupdesc.*.attrs()[natt];
+        const attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
         if (@as(c_int, @bitCast(@as(c_int, attr.*.attnum))) < @as(c_int, 0)) continue;
-        var typid = attr.*.atttypid;
+        const typid = attr.*.atttypid;
         origval = pg.heap_getattr(tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &isnull);
         pg.getTypeOutputInfo(typid, &typoutput, &typisvarlena);
         if (isnull) {
@@ -136,7 +136,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
         var new_val: pg.Datum = undefined;
         var previous_exists_and_is_null: bool = undefined;
         var new_isnull: bool = undefined;
-        var attr = &tupdesc.*.attrs()[natt];
+        const attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) {
             std.debug.print("Attr {} is dropped\n", .{attr.*.attnum});
             continue;
@@ -147,7 +147,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
             continue;
         }
 
-        var typid = attr.*.atttypid;
+        const typid = attr.*.atttypid;
         new_val = pg.heap_getattr(new_tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &new_isnull);
         if (previous_tuple == null) {
             previous_exists_and_is_null = false;
@@ -191,7 +191,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
         var typisvarlena: bool = undefined;
         var key: pg.Datum = undefined;
         var isnull: bool = undefined;
-        var attr = &tupdesc.*.attrs()[natt];
+        const attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
 
         if (@as(c_int, @bitCast(@as(c_int, attr.*.attnum))) < @as(c_int, 0)) continue;
@@ -203,7 +203,7 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
             continue;
         }
 
-        var typid = attr.*.atttypid;
+        const typid = attr.*.atttypid;
 
         if (previous_tuple == null) {
             std.debug.print("No previous tuple, taking data from the new tuple\n", .{});
@@ -240,8 +240,8 @@ pub fn print_update(stmt_buf: []u8, tupdesc: pg.TupleDesc, key_attrs: [*c]pg.Bit
 }
 
 pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.HeapTuple) !usize {
-    var tupdesc = arg_tupdesc;
-    var tuple = arg_tuple;
+    const tupdesc = arg_tupdesc;
+    const tuple = arg_tuple;
     var natt: usize = 0;
     var printed: usize = 0;
     var offset: usize = 0;
@@ -252,10 +252,10 @@ pub fn print_delete(stmt_buf: []u8, arg_tupdesc: pg.TupleDesc, arg_tuple: pg.Hea
         var typisvarlena: bool = undefined;
         var origval: pg.Datum = undefined;
         var isnull: bool = undefined;
-        var attr = &tupdesc.*.attrs()[natt];
+        const attr = &tupdesc.*.attrs()[natt];
         if (attr.*.attisdropped) continue;
         if (@as(c_int, @bitCast(@as(c_int, attr.*.attnum))) < @as(c_int, 0)) continue;
-        var typid = attr.*.atttypid;
+        const typid = attr.*.atttypid;
         origval = pg.heap_getattr(tuple, @as(c_int, @intCast(natt + 1)), tupdesc, &isnull);
         if (isnull) {
             continue;
