@@ -48,7 +48,7 @@ pub export fn Pg_magic_func() [*c]const Pg_magic_struct {
 
 pub export fn _PG_output_plugin_init(arg_cb: [*c]pg.OutputPluginCallbacks) void {
     std.debug.print("Welcome to pg_turso\n", .{});
-    var cb = arg_cb;
+    const cb = arg_cb;
     cb.*.startup_cb = &pg_turso_startup;
     cb.*.shutdown_cb = &pg_turso_shutdown;
     cb.*.begin_cb = &pg_turso_begin_txn;
@@ -94,10 +94,10 @@ const allocator = gpa.allocator();
 pub fn pg_turso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.OutputPluginOptions, arg_is_init: bool) callconv(.C) void {
     std.debug.print("pg_turso_startup\n", .{});
 
-    var ctx = arg_ctx;
-    var opt = arg_opt;
+    const ctx = arg_ctx;
+    const opt = arg_opt;
     _ = arg_is_init;
-    var data: *PgTursoData = @ptrCast(@alignCast(pg.palloc0(@sizeOf(PgTursoData))));
+    const data: *PgTursoData = @ptrCast(@alignCast(pg.palloc0(@sizeOf(PgTursoData))));
     data.*.context = pg.AllocSetContextCreateInternal(ctx.*.context, "text conversion context", 0, 8 * 1024, 8 * 1024 * 1024);
     ctx.*.output_plugin_private = @as(?*anyopaque, @ptrCast(data));
     opt.*.output_type = @bitCast(pg.OUTPUT_PLUGIN_TEXTUAL_OUTPUT);
@@ -119,7 +119,7 @@ pub fn pg_turso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.
         option = null;
         break :blk @as(c_int, 0);
     }) != 0) : (option__state.i += 1) {
-        var elem: [*c]pg.DefElem = @as([*c]pg.DefElem, @ptrCast(@alignCast(option.*.ptr_value)));
+        const elem: [*c]pg.DefElem = @as([*c]pg.DefElem, @ptrCast(@alignCast(option.*.ptr_value)));
         if (std.mem.eql(u8, elem.*.defname[0..3], "url")) {
             const url_string = std.mem.span(@as([*c]pg.String, @ptrCast(@alignCast(elem.*.arg))).*.sval);
             data.*.url = std.fmt.allocPrint(allocator, "{s}", .{url_string}) catch unreachable;
@@ -140,7 +140,7 @@ pub fn pg_turso_startup(arg_ctx: [*c]pg.LogicalDecodingContext, arg_opt: [*c]pg.
 }
 
 pub fn pg_turso_shutdown(arg_ctx: [*c]pg.LogicalDecodingContext) callconv(.C) void {
-    var data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(arg_ctx.*.output_plugin_private)));
+    const data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(arg_ctx.*.output_plugin_private)));
     allocator.free(data.*.url);
     allocator.free(data.*.auth);
     allocator.free(data.*.table_name);
@@ -160,11 +160,11 @@ fn init_stmt_list() !std.json.Array {
 }
 
 pub fn pg_turso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, relation: pg.Relation, change: [*c]pg.ReorderBufferChange) callconv(.C) void {
-    var data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
+    const data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
     var txndata: ?*PgTursoTxnData = @as(?*PgTursoTxnData, @ptrCast(@alignCast(txn.*.output_plugin_private)));
-    var class_form: pg.Form_pg_class = relation.*.rd_rel;
-    var tupdesc: pg.TupleDesc = relation.*.rd_att;
-    var old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
+    const class_form: pg.Form_pg_class = relation.*.rd_rel;
+    const tupdesc: pg.TupleDesc = relation.*.rd_att;
+    const old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
 
     // NOTICE: it's easy to get qualified names with pg_quote_qualified_identifier,
     // but let's simplify it without namespaces for now.
@@ -252,9 +252,9 @@ pub fn pg_turso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBu
 
 pub fn pg_turso_commit_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_commit_lsn: pg.XLogRecPtr) callconv(.C) void {
     _ = arg_commit_lsn;
-    var data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
+    const data: *PgTursoData = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
 
-    var txndata: ?*PgTursoTxnData = @as(?*PgTursoTxnData, @ptrCast(@alignCast(txn.*.output_plugin_private)));
+    const txndata: ?*PgTursoTxnData = @as(?*PgTursoTxnData, @ptrCast(@alignCast(txn.*.output_plugin_private)));
     if (txndata == null) {
         std.debug.print("pg_turso_commit_txn: no txndata\n", .{});
         return;
@@ -282,11 +282,11 @@ pub fn pg_turso_commit_txn(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.Reord
 }
 
 pub fn pg_turso_truncate(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBufferTXN, arg_nrelations: c_int, arg_relations: [*c]pg.Relation, arg_change: [*c]pg.ReorderBufferChange) callconv(.C) void {
-    var nrelations = arg_nrelations;
-    var relations = arg_relations;
+    const nrelations = arg_nrelations;
+    const relations = arg_relations;
     _ = arg_change;
-    var data = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
-    var old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
+    const data = @as(*PgTursoData, @ptrCast(@alignCast(ctx.*.output_plugin_private)));
+    const old: pg.MemoryContext = pg.MemoryContextSwitchTo(data.*.context);
 
     var txndata: ?*PgTursoTxnData = @as(?*PgTursoTxnData, @ptrCast(@alignCast(txn.*.output_plugin_private)));
     // Initialize transaction data if it's not there yet
@@ -326,10 +326,10 @@ pub fn pg_turso_filter(arg_ctx: [*c]pg.LogicalDecodingContext, arg_origin_id: pg
 // Example how to instantiate the function in Postgres:
 // CREATE FUNCTION turso_send(url text, token text, data text) RETURNS text AS '$libdir/pg_turso' LANGUAGE C STRICT;
 pub export fn turso_send(arg_fcinfo: pg.FunctionCallInfo) pg.Datum {
-    var fcinfo = arg_fcinfo;
-    var url: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[0].value);
-    var token: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[1].value);
-    var data: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[2].value);
+    const fcinfo = arg_fcinfo;
+    const url: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[0].value);
+    const token: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[1].value);
+    const data: [*c]pg.text = pg.DatumGetTextPP(fcinfo.*.args()[2].value);
 
     var object_map = std.json.ObjectMap.init(allocator);
     var stmt_list = std.json.Array.initCapacity(allocator, 1) catch |err| {
