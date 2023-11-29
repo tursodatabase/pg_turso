@@ -24,6 +24,8 @@ pub fn build(b: *std.build.Builder) void {
 
     lib.addIncludePath(.{ .cwd_relative = "postgres/src/include" });
     lib.linkLibC();
+    lib.linker_allow_shlib_undefined = true;
+
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
