@@ -42,9 +42,9 @@ LANGUAGE SQL
 AS $$
     CREATE EXTENSION IF NOT EXISTS pg_cron;
     SELECT turso_migrate_table_schema(table_name);
-    SELECT pg_create_logical_replication_slot('pg_turso_slot_' || table_name, 'pg_turso');
+    SELECT pg_create_logical_replication_slot('pg_turso_slot_' || MD5(table_name), 'pg_turso');
     SELECT cron.schedule(
-        'turso-refresh-' || table_name,
+        'turso-refresh-' || MD5(table_name),
         refresh_interval,
         $cron$CALL turso_replicate_table('$cron$ || table_name || $cron$')$cron$
     );
