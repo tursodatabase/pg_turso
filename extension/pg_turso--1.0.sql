@@ -15,7 +15,7 @@ CREATE OR REPLACE PROCEDURE turso_replicate_table(table_name text)
 LANGUAGE SQL
 AS $$
         SELECT * FROM pg_logical_slot_get_changes(
-            'pg_turso_slot_' || table_name, NULL, NULL,
+            'pg_turso_slot_' || MD5(table_name), NULL, NULL,
             'url', (SELECT turso_url()),
             'auth', (SELECT turso_token()),
             'table_name', table_name
@@ -46,7 +46,7 @@ AS $$
     SELECT cron.schedule(
         'turso-refresh-' || table_name,
         refresh_interval,
-        $cron$CALL turso_replicate_table('$cron$ || MD5(table_name) || $cron$')$cron$
+        $cron$CALL turso_replicate_table('$cron$ || table_name || $cron$')$cron$
     );
 $$;
 
