@@ -15,7 +15,7 @@ CREATE OR REPLACE PROCEDURE turso_replicate_table(table_name text)
 LANGUAGE SQL
 AS $$
         SELECT * FROM pg_logical_slot_get_changes(
-            'pg_turso_slot_' || table_name, NULL, NULL,
+            'pg_turso_slot_' || MD5(table_name), NULL, NULL,
             'url', (SELECT turso_url()),
             'auth', (SELECT turso_token()),
             'table_name', table_name
@@ -42,7 +42,7 @@ LANGUAGE SQL
 AS $$
     CREATE EXTENSION IF NOT EXISTS pg_cron;
     SELECT turso_migrate_table_schema(table_name);
-    SELECT pg_create_logical_replication_slot('pg_turso_slot_' || table_name, 'pg_turso');
+    SELECT pg_create_logical_replication_slot('pg_turso_slot_' || MD5(table_name), 'pg_turso');
     SELECT cron.schedule(
         'turso-refresh-' || table_name,
         refresh_interval,

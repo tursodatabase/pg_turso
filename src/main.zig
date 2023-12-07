@@ -168,9 +168,12 @@ pub fn pg_turso_change(ctx: [*c]pg.LogicalDecodingContext, txn: [*c]pg.ReorderBu
 
     // NOTICE: it's easy to get qualified names with pg_quote_qualified_identifier,
     // but let's simplify it without namespaces for now.
-    const table = if (class_form.*.relrewrite != 0) pg.get_rel_name(class_form.*.relrewrite) else @as([*c]u8, @ptrCast(@alignCast(&class_form.*.relname.data)));
-
-    if (!std.mem.eql(u8, std.mem.span(table), data.*.table_name)) {
+    var table = if (class_form.*.relrewrite != 0) pg.get_rel_name(class_form.*.relrewrite) else @as([*c]u8, @ptrCast(@alignCast(&class_form.*.relname.data)));
+    var tableName = data.*.table_name;
+    if (tableName.len >= 2 and tableName[0] == '"' and tableName[tableName.len - 1] == '"') {
+        tableName = tableName[1 .. tableName.len - 1];
+    }
+    if (!std.mem.eql(u8, std.mem.span(table), tableName)) {
         std.debug.print("Ignoring table <{s}>, because it's not <{s}>.\n", .{ table, data.*.table_name });
         return;
     }

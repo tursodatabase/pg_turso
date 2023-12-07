@@ -31,7 +31,14 @@ fn print_literal(stmt_buf: []u8, arg_typid: pg.Oid, arg_outputstr: [*c]u8) usize
                 offset += 5;
             }
         },
-        @as(pg.Oid, @bitCast(@as(c_int, 25))) => {
+        @as(pg.Oid, @bitCast(@as(c_int, 25))), // text
+        @as(pg.Oid, @bitCast(@as(c_int, 1043))), // varchar
+        @as(pg.Oid, @bitCast(@as(c_int, 2950))), // uuid
+        @as(pg.Oid, @bitCast(@as(c_int, 114))), // json
+        @as(pg.Oid, @bitCast(@as(c_int, 3802))), // jsonb
+        @as(pg.Oid, @bitCast(@as(c_int, 1114))), // timestamp
+        @as(pg.Oid, @bitCast(@as(c_int, 1184))), // timestamptz
+        => {
             const entry = std.fmt.bufPrint(stmt_buf[offset..], "'{s}'", .{outputstr}) catch unreachable;
             offset += entry.len;
         },
