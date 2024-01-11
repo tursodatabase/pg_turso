@@ -1,3 +1,9 @@
+<p align="center">⚠️ <strong>This project is now deprecated and no longer supported</strong> ⚠️</p>
+
+<p align="center"><a href="https://turso.tech">Turso</a> makes it easy to create thousands of databases using the CLI and Platform API.</p>
+
+---
+
 # pg_turso
 
 Postgres [output plugin](https://www.postgresql.org/docs/current/logicaldecoding-output-plugin.html) for replicating data to Turso.
